@@ -31,7 +31,24 @@ terraform {
       source  = "hashicorp/time"
       version = "~> 0.14.0"
     }
+    neon = {
+      source  = "kislerdm/neon"
+      version = "~> 0.18.0"
+    }
+    upstash = {
+      source  = "upstash/upstash"
+      version = "~> 2.1.0"
+    }
   }
+}
+
+provider "neon" {
+  api_key = var.neon_api_key
+}
+
+provider "upstash" {
+  email   = var.upstash_email
+  api_key = var.upstash_api_key
 }
 
 # Enables local.bootstrap_services only. user_project_override is deliberately

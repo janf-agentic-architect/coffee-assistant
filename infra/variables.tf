@@ -94,3 +94,48 @@ variable "agent_identity_roles" {
     "roles/secretmanager.secretAccessor",
   ]
 }
+
+variable "neon_api_key" {
+  description = "API Key for provisioning resources in Neon. Can also be set via NEON_API_KEY env var."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "neon_org_id" {
+  description = "Organization ID for Neon Lakebase Postgres (required if account belongs to an organization)"
+  type        = string
+  default     = null
+}
+
+variable "neon_region" {
+  description = "Cloud region for Neon Lakebase Postgres (e.g. aws-us-east-1, aws-us-east-2, aws-eu-central-1)"
+  type        = string
+  default     = "aws-us-east-1"
+}
+
+variable "upstash_email" {
+  description = "Email address for Upstash account"
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "upstash_api_key" {
+  description = "Management API Key for provisioning Upstash Redis (from Upstash Console > Account > API Key)"
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "upstash_primary_region" {
+  description = "Primary region for Upstash Redis Global database (e.g. us-east-1, us-west-1, eu-central-1)"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "neon_history_retention_seconds" {
+  description = "History retention in seconds for Point-in-Time Restore (Free tier max is 21600 / 6h, Paid plans up to 30 days)"
+  type        = number
+  default     = 21600
+}

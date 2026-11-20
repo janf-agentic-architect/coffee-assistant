@@ -2,7 +2,7 @@
 
 A production-ready fullstack template for developing, testing, and deploying multimodal conversational agents powered by **Google ADK (Agent Development Kit)** and **Gemini**.
 
-Equipped with a modern web interface built with **React + @assistant-ui** deployable to **Cloudflare Workers**, an omnichannel **WhatsApp Cloud API** integration channel deployable to **Google Cloud Run**, automated distributed rate limiting via **Upstash Redis**, and Infrastructure as Code with **Terraform** on **Google Cloud Platform (GCP)**.
+Equipped with a modern web interface built with **React + @assistant-ui** deployable to **Cloudflare Workers**, a **Live Orders Dashboard** backed by **Drizzle ORM** and **Neon Lakebase Postgres**, an omnichannel **WhatsApp Cloud API** integration microservice deployable to **Google Cloud Run**, automated distributed rate limiting via **Upstash Redis**, and unified Infrastructure as Code with **Terraform** managing **Google Cloud Platform (GCP)**, **Neon**, and **Upstash**.
 
 🔗 **Live Demo:** [https://coffee-assistant-web.janf-agentic-architect.workers.dev/](https://coffee-assistant-web.janf-agentic-architect.workers.dev/)
 
@@ -13,9 +13,12 @@ Equipped with a modern web interface built with **React + @assistant-ui** deploy
 - **🧠 Google ADK & Gemini 2.5 / 3.5**: Full conversational lifecycle, tools execution, and native session management.
 - **🎨 Multimodal Processing**: Ingest and understand text, images, voice notes, and audio attachments across both Web and WhatsApp channels.
 - **🌐 Cloudflare Workers Web UI**: Fast edge-rendered interface powered by Hono and `@assistant-ui` with real-time streaming and custom media renderers.
+- **📋 Live Orders Dashboard**: Integrated order management UI in the web application with real-time order tracking, status badges, order notes, and full CRUD operations via Drizzle ORM.
+- **⚡ Neon Lakebase Postgres & Drizzle ORM**: Serverless PostgreSQL with dual connection URLs (pooled via PgBouncer for Cloudflare Workers edge runtime and direct for DDL schema migrations) provisioned via Terraform.
+- **🐳 Ephemeral Local Database**: Instant local PostgreSQL container via Docker (`make dev-db`) pre-configured with schema extensions (`pgcrypto`) and seed data.
 - **📱 WhatsApp Cloud API on Cloud Run**: Dedicated FastAPI microservice handling webhooks, Meta media downloads, Base64 formatting for ADK, and persistent per-phone sessions—ready for local dev (ngrok) or serverless deployment on **GCP Cloud Run**.
 - **🛡️ Distributed Rate Limiting**: Built-in `UpstashRateLimitPlugin` for ADK protecting agent endpoints from abuse.
-- **🔐 Secret Synchronization**: Automated synchronization between local environment variables and **GCP Secret Manager** with seamless injection during deployment.
+- **🔐 Automated Multi-Cloud IaC & Secret Sync**: Terraform provisions GCP resources, Neon Postgres, and Upstash Redis, automatically storing connection strings and credentials in **GCP Secret Manager**.
 - **☁️ Vertex AI Agent Runtime & Automated GCP Projects**: Terraform IaC to either deploy into an existing project or provision an entirely new GCP project from scratch with automatic billing association, API enablement, and metadata synchronization.
 
 ---
@@ -25,16 +28,16 @@ Equipped with a modern web interface built with **React + @assistant-ui** deploy
 ```mermaid
 flowchart TD
     subgraph Clients ["Clients & Channels"]
-        WebUI["React Web UI (@assistant-ui)"]
+        WebUI["React Web UI (@assistant-ui)\n(Chat & Orders Dashboard)"]
         WhatsAppClient["WhatsApp App (iOS / Android / Web)"]
     end
 
     subgraph EdgeAndChannels ["Edge & Webhook Services"]
-        HonoWorker["Cloudflare Worker\n(Hono Proxy + GCP SA Auth)"]
+        HonoWorker["Cloudflare Worker\n(Hono Proxy + GCP SA Auth + Drizzle ORM)"]
         MetaAPI["Meta WhatsApp Cloud API"]
         WhatsAppService["WhatsApp Microservice\n(FastAPI: Local / Cloud Run)"]
 
-        WebUI -->|Streaming & Sessions| HonoWorker
+        WebUI -->|Streaming, Sessions & Orders| HonoWorker
         WhatsAppClient <-->|Messages & Media| MetaAPI
         MetaAPI <-->|Webhooks & Graph API| WhatsAppService
     end
@@ -57,9 +60,14 @@ flowchart TD
         WhatsAppService -.->|"Container Image"| ArtifactRegistry
     end
 
-    subgraph Security ["Resilience & External Services"]
+    subgraph ExternalServices ["External Cloud Services (IaC Managed)"]
+        NeonDB["Neon Lakebase Postgres\n(Serverless DB + PgBouncer Pooler)"]
         Upstash["Upstash Redis\n(Distributed Rate Limiter)"]
+
+        HonoWorker <-->|"Pooled SQL (PgBouncer)"| NeonDB
         ADKAgent <-->|"Sliding Window Counter"| Upstash
+        SecretManager -.->|"Stores DB & Redis URLs"| NeonDB
+        SecretManager -.->|"Stores Redis Tokens"| Upstash
     end
 ```
 
@@ -69,7 +77,7 @@ flowchart TD
 
 ```
 .
-├── Makefile                     # Task automation (dev, infra, secrets, deploy, channels, rename)
+├── Makefile                     # Task automation (dev, db, infra, secrets, deploy, channels, rename)
 ├── agents/                      # ADK Agents
 │   └── coffee-assistant/        # Conversational agent implementation
 │       ├── app/
@@ -95,27 +103,37 @@ flowchart TD
 │       ├── client.py            # Meta Graph API media & messaging client
 │       ├── subscribe_waba.py    # Utility to subscribe WABA to Meta App webhooks
 │       └── README.md            # Detailed WhatsApp configuration guide
-├── web/                         # Web Application & Edge API Proxy
+├── web/                         # Web Application, Orders Dashboard & Edge API Proxy
+│   ├── drizzle.config.ts        # Drizzle ORM configuration
+│   ├── drizzle/                 # Generated SQL migrations
 │   ├── src/
-│   │   ├── components/          # React components (@assistant-ui thread & attachments)
+│   │   ├── components/          # React components (@assistant-ui thread, OrdersDashboard)
+│   │   ├── db/                  # Drizzle database client, schema, and seed script
+│   │   │   ├── index.ts         # Neon serverless / PostgreSQL connection helper
+│   │   │   ├── schema.ts        # coffee_orders & chat_messages tables
+│   │   │   └── seed.ts          # Sample data seeding script
 │   │   ├── gcp-auth.ts          # JWT token generation for GCP Service Account
-│   │   ├── index.tsx            # Hono server & /api/adk/* proxy
-│   │   └── style.css            # Styles for chat layout & media previews
+│   │   ├── index.tsx            # Hono server, /api/orders CRUD & /api/adk/* proxy
+│   │   └── style.css            # Styles for chat layout, dashboard & media previews
 │   ├── wrangler.jsonc           # Cloudflare Workers configuration
 │   └── package.json             # Node.js dependencies (pnpm)
 └── infra/                       # Infrastructure as Code (Terraform)
+    ├── providers.tf             # Terraform providers (Google, Neon, Upstash, Time, Random)
     ├── project.tf               # Conditional GCP project creation & suffix generator
     ├── apis.tf                  # Google Cloud APIs enablement (Vertex AI, Cloud Run, etc.)
     ├── iam.tf                   # Service Accounts, roles, and keys for Web Caller
-    ├── secrets.tf               # Secret Manager resources for Agent
+    ├── neon.tf                  # Neon Lakebase Postgres provisioning & Secret Manager storage
+    ├── upstash.tf               # Upstash Redis database provisioning & Secret Manager storage
     ├── service.tf               # Vertex AI Reasoning Engine / Agent Runtime
     ├── storage.tf               # Storage and logging buckets
     ├── telemetry.tf             # Logging and BigQuery sinks (with SA propagation delay)
     ├── whatsapp_channel.tf      # Cloud Run service, SA, and Secret Manager for WhatsApp
     ├── whatsapp_outputs.tf      # Cloud Run URL, Webhook URL, and Artifact Registry outputs
+    ├── postgres-init/           # Local Docker PostgreSQL init scripts
+    │   └── init.sql             # Schema definitions and initial seed data
     ├── sync_secrets.py          # Automatic local .env to Secret Manager sync script
     └── vars/
-        ├── env.tfvars.example   # Example variables (tracked in git)
+        ├── env.tfvars.example   # Example variables with Neon & Upstash credentials (tracked in git)
         └── env.tfvars           # Active deployment variables (gitignored)
 ```
 
@@ -139,37 +157,59 @@ Ensure you have the following tools installed and configured:
   gcloud config set project <YOUR_PROJECT_ID>
   ```
 - **[Node.js >= 18](https://nodejs.org/)** and **[pnpm](https://pnpm.io/)**.
+- **[Docker](https://www.docker.com/)** (for the local ephemeral PostgreSQL development database).
 - **[Terraform >= 1.5](https://www.terraform.io/)**.
 - **[Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)** (Cloudflare):
   ```bash
   npx wrangler login
   ```
 - *(Optional - for WhatsApp)*: **[ngrok](https://ngrok.com/)** and a [Meta for Developers](https://developers.facebook.com/) account.
-- *(Optional - for Rate Limiting)*: An [Upstash Redis](https://upstash.com/) database URL and token.
+- *(Optional - for Managed Infra)*: A [Neon](https://neon.tech/) API Key and an [Upstash](https://upstash.com/) API Key to automate database and Redis provisioning via Terraform.
 
 ---
 
 ## 🚀 Quick Start (Local Development)
 
-### 1. Run the Agent Locally
+### 1. Run the Local Database (PostgreSQL + Drizzle)
+
+Start an ephemeral PostgreSQL container with pre-configured schema and seed data using Docker:
+
+```bash
+make dev-db
+```
+> The container stops and cleans up automatically when you press `Ctrl+C`.
+
+In a separate terminal, manage or inspect your schema with Drizzle:
+```bash
+# Push schema changes to your local database
+make db-push
+
+# Seed additional sample orders and messages
+make db-seed
+
+# Open Drizzle Studio visualizer in your browser
+make db-studio
+```
+
+### 2. Run the Agent Locally
 
 Start the interactive development environment (`agents-cli` Playground):
 
 ```bash
 make dev-agent
 ```
-> Or directly within `agents/coffee-assistant`: `agents-cli playground`
+> Or run the FastAPI local server: `make dev-agent-api` (runs on `http://localhost:8080`).
 
-### 2. Run the Web Application Locally
+### 3. Run the Web Application Locally
 
-In a separate terminal, launch the React + Hono frontend:
+In another terminal, launch the React + Hono frontend:
 
 ```bash
 make dev-web
 ```
-Open your browser at `http://localhost:5173`. The web interface will automatically connect to your local agent at `http://localhost:8080`.
+Open your browser at `http://localhost:5173`. The web interface will automatically connect to your local agent at `http://localhost:8080` and your local PostgreSQL database at `localhost:5432`. You can switch between the **Assistant Chat** and the **Orders Dashboard**.
 
-### 3. Run the WhatsApp Channel (Optional)
+### 4. Run the WhatsApp Channel (Optional)
 
 Configure your credentials in `channels/whatsapp/.env` (see [channels/whatsapp/README.md](channels/whatsapp/README.md)), then start the webhook service and an ngrok tunnel concurrently:
 
@@ -185,12 +225,46 @@ make subscribe-whatsapp-waba
 
 ---
 
+## 💾 Database & Persistence (Neon + Drizzle)
+
+The project includes a robust, edge-ready data persistence layer:
+
+### Schema Design (`web/src/db/schema.ts`)
+- **`coffee_orders`**: Stores order details (`id`, `customerName`, `coffeeType`, `quantity`, `status`, `notes`, `createdAt`, `updatedAt`).
+- **`chat_messages`**: Stores conversation history and session-linked messages (`id`, `sessionId`, `role`, `content`, `createdAt`).
+
+### Local vs. Production Workflow
+1. **Local Development**:
+   - Docker container runs `postgres:19-alpine` with `infra/postgres-init/init.sql`.
+   - `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/coffee_assistant_db`.
+2. **Production (Neon Lakebase Postgres)**:
+   - Terraform (`infra/neon.tf`) provisions the Neon project and application database.
+   - Generates two connection strings saved directly to **GCP Secret Manager**:
+     - `database-url`: **Pooled connection string (PgBouncer)** used by Cloudflare Workers at the edge. Automatically injected via `make deploy-web`.
+     - `database-url-direct`: **Direct connection string** used for DDL schema migrations.
+
+### Running Migrations on Neon
+To run schema migrations or push changes directly to your Neon cloud database:
+```bash
+# Push Drizzle schema directly to Neon using the direct connection URL from Secret Manager
+make db-neon-push
+
+# Or run standard migration files
+make db-neon-migrate
+
+# Inspect the active pooled database URL from Secret Manager
+make get-db-secret
+```
+
+---
+
 ## 📱 Channels & Multimodal Support
 
 ### Multimodal Chat (Web UI)
 The web client features rich attachment handling:
 - **Images**: Inline previews, lightboxes, and visual question answering with Gemini.
 - **Audio & Voice Notes**: Visual audio player controls with real-time waveform representation and Gemini audio transcription/reasoning.
+- **Orders Dashboard**: Live order status tracking, filtering, and state updates.
 
 ### WhatsApp Cloud API Integration
 The `channels/whatsapp` microservice handles Meta webhooks asynchronously:
@@ -201,7 +275,7 @@ The `channels/whatsapp` microservice handles Meta webhooks asynchronously:
 - Maps user phone numbers to persistent sessions (`wa_<phone_number>`).
 - Supports **both** local execution (with ngrok) and **serverless production deployment on Cloud Run**.
 - Handles authentication automatically:
-  - Local dev: calls direct HTTP agent endpoints (`http://localhost:8000`).
+  - Local dev: calls direct HTTP agent endpoints (`http://localhost:8080`).
   - Cloud Run: obtains Google Cloud Application Default Credentials (ADC) / IAM Bearer tokens to securely call Vertex AI Reasoning Engine.
 
 For detailed webhook setup in Meta Developer Portal, see [channels/whatsapp/README.md](channels/whatsapp/README.md).
@@ -210,21 +284,26 @@ For detailed webhook setup in Meta Developer Portal, see [channels/whatsapp/READ
 
 ## 🔐 Secrets & Rate Limiting
 
-### Automated Secret Manager Sync
-Any sensitive configuration placed in `agents/coffee-assistant/.env` or `channels/whatsapp/.env` can be synced to GCP Secret Manager:
+### Automated Multi-Cloud Provisioning via Terraform
+When you provide `neon_api_key` and `upstash_api_key` in `infra/vars/env.tfvars`, Terraform automatically:
+1. Provisions your **Neon Lakebase Postgres** project and database.
+2. Provisions your **Upstash Redis** global database.
+3. Automatically creates and stores the following secrets in **GCP Secret Manager**:
+   - `database-url`: Pooled PgBouncer connection URI for the web worker.
+   - `database-url-direct`: Direct PostgreSQL URI for migrations.
+   - `upstash-redis-url`: REST endpoint for Upstash Redis.
+   - `upstash-redis-token`: Bearer authentication token for Upstash Redis.
+
+### Local Secret Manager Sync
+Any custom configuration placed in `agents/coffee-assistant/.env` or `channels/whatsapp/.env` can be synced to GCP Secret Manager:
 
 ```bash
-# Sync agent secrets (Upstash credentials, API keys)
+# Sync agent secrets (API keys, custom variables)
 make sync-secrets
 
 # Sync WhatsApp credentials (WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, etc.)
 make sync-whatsapp-secrets
 ```
-This utility:
-1. Inspects key-value pairs in `.env`.
-2. Creates or updates secrets in GCP Secret Manager.
-3. Grants read access to the corresponding service account.
-4. Generates `.secrets_args` so deployment tools automatically bind them.
 
 ### Upstash Redis Rate Limiting
 The agent incorporates `UpstashRateLimitPlugin` implementing a sliding window algorithm:
@@ -241,21 +320,36 @@ If limits are exceeded, a polite fallback message is returned without consuming 
 
 ## ☁️ Production Deployment
 
-The project provides automated commands to provision infrastructure on GCP, deploy the agent to Vertex AI, publish the web app to Cloudflare Workers, and deploy the WhatsApp channel to Cloud Run.
+The project provides automated commands to provision infrastructure on GCP, Neon, and Upstash, deploy the agent to Vertex AI, publish the web app to Cloudflare Workers, and deploy the WhatsApp channel to Cloud Run.
 
-### 1. GCP Project & Infrastructure Provisioning (`make infra`)
+### 1. Cloud Infrastructure Provisioning (`make infra`)
 
-Terraform can either deploy into an existing project or create a brand new GCP project automatically:
+Configure `infra/vars/env.tfvars` (copy from `infra/vars/env.tfvars.example`) with your GCP, Neon, and Upstash credentials:
+
+```hcl
+project_name = "coffee-assistant"
+region       = "us-east1"
+
+# Neon Lakebase Postgres credentials
+neon_api_key = "your-neon-api-key"
+neon_org_id  = "org-your-org-id"
+
+# Upstash Redis credentials
+upstash_email   = "your-email@example.com"
+upstash_api_key = "your-upstash-api-key"
+```
+
+Then run Terraform:
 
 #### Option A: Create a New GCP Project Automatically
 ```bash
 make infra CREATE_PROJECT=true PROJECT_NAME="coffee-assistant"
 ```
 - Creates a new GCP project (e.g. `coffee-assistant-bab9d2`) with a unique random suffix.
-- Automatically detects and links your active open Google Cloud Billing Account.
+- Automatically detects and links your active Google Cloud Billing Account.
 - Enables all required APIs (Vertex AI, Cloud Run, Secret Manager, Cloud Build, BigQuery, etc.).
-- Sincroniza automáticamente el `project_id` generado en:
-  - `infra/vars/env.tfvars` (ignorado en git)
+- Automatically synchronizes the generated `project_id` across:
+  - `infra/vars/env.tfvars` (gitignored)
   - `agents/coffee-assistant/.env`
   - `deployment_metadata.json`
   - `gcloud config set project <PROJECT_ID>`
@@ -270,17 +364,18 @@ Or define `project_id = "your-existing-project-id"` in `infra/vars/env.tfvars`.
 
 ### 2. Full Core Deployment (Agent + Web)
 
-To provision/update infrastructure and deploy both the Agent and Web UI in one go:
+To provision infrastructure, deploy the Agent to Vertex AI, and publish the Web UI with Neon database connectivity in one step:
 
 ```bash
 make deploy-all
 ```
 
 Or step-by-step:
-1. **Infrastructure (`make infra`)**: Provisions GCP resources and synchronizes project metadata.
-2. **Secrets Sync (`make sync-secrets`)**: Syncs all environment variables from `agents/coffee-assistant/.env` into GCP Secret Manager.
-3. **Agent Deployment (`make deploy-agent`)**: Packages and deploys the agent to Vertex AI Agent Runtime using `agents-cli deploy` with bound secrets.
-4. **Web Deployment (`make deploy-web`)**: Builds and deploys the frontend to Cloudflare Workers, automatically injecting `AGENT_RUNTIME_API_URL` and `GCP_SA_KEY_JSON`.
+1. **Infrastructure (`make infra`)**: Provisions GCP, Neon Postgres, and Upstash Redis.
+2. **Secrets Sync (`make sync-secrets`)**: Syncs environment variables into GCP Secret Manager.
+3. **Database Migration (`make db-neon-push`)**: Pushes Drizzle schema to Neon.
+4. **Agent Deployment (`make deploy-agent`)**: Packages and deploys the agent to Vertex AI Agent Runtime with bound secrets.
+5. **Web Deployment (`make deploy-web`)**: Builds and deploys the frontend to Cloudflare Workers, automatically injecting `AGENT_RUNTIME_API_URL`, `GCP_SA_KEY_JSON`, and `DATABASE_URL`.
 
 ---
 
@@ -295,7 +390,7 @@ make sync-whatsapp-secrets
 # 2. Build and push container to Artifact Registry via Cloud Build
 make build-whatsapp
 
-# 3. Deploy to Cloud Run (or run all 3 in one step)
+# 3. Deploy to Cloud Run (or run all in one step)
 make deploy-whatsapp
 
 # 4. Subscribe your WABA to webhooks
@@ -311,13 +406,21 @@ After deployment, copy the `whatsapp_webhook_url` output and configure it in you
 | Command | Category | Description |
 |---------|----------|-------------|
 | `make dev-agent` | Local Dev | Run local agent playground with `agents-cli` |
+| `make dev-agent-api` | Local Dev | Run local FastAPI server on port 8080 |
 | `make dev-web` | Local Dev | Start Vite + Hono frontend development server |
+| `make dev-db` | Database | Run ephemeral PostgreSQL container with Docker |
+| `make db-push` | Database | Push Drizzle schema to local database |
+| `make db-seed` | Database | Seed database with sample data via TypeScript/Drizzle |
+| `make db-studio` | Database | Open Drizzle Studio visualizer in browser |
+| `make get-db-secret` | Database | Fetch pooled `DATABASE_URL` from GCP Secret Manager |
+| `make db-neon-migrate` | Database | Run Drizzle migrations against Neon using direct connection |
+| `make db-neon-push` | Database | Push Drizzle schema directly to Neon using direct connection |
 | `make dev-whatsapp` | Local Dev | Start WhatsApp webhook server on port 8001 |
 | `make tunnel-whatsapp` | Local Dev | Open an ngrok tunnel to port 8001 |
 | `make dev-whatsapp-tunnel`| Local Dev | Concurrently start WhatsApp webhook & ngrok tunnel |
 | `make infra-init` | Infra | Initialize Terraform providers and backend |
-| `make infra-plan` | Infra | Preview GCP infrastructure changes with Terraform |
-| `make infra` | Infra | Apply GCP infrastructure (supports `CREATE_PROJECT=true PROJECT_NAME=...` or `PROJECT_ID=...`) |
+| `make infra-plan` | Infra | Preview infrastructure changes with Terraform |
+| `make infra` | Infra | Apply infrastructure (supports `CREATE_PROJECT=true PROJECT_NAME=...` or `PROJECT_ID=...`) |
 | `make sync-metadata` | Infra | Sync active Project ID and Reasoning Engine ID to configs |
 | `make sync-secrets` | Secrets | Synchronize `agents/coffee-assistant/.env` to GCP Secret Manager |
 | `make sync-whatsapp-secrets` | Secrets | Synchronize `channels/whatsapp/.env` to GCP Secret Manager |
@@ -326,19 +429,29 @@ After deployment, copy the `whatsapp_webhook_url` output and configure it in you
 | `make subscribe-whatsapp-waba` | Channels | Link WhatsApp Business Account (WABA) to Meta App webhooks |
 | `make deploy-agent` | Deploy | Deploy agent to Vertex AI Agent Runtime with bound secrets |
 | `make deploy-status` | Deploy | Check deployment progress in Vertex AI Agent Runtime |
-| `make deploy-web` | Deploy | Build & deploy web app to Cloudflare Workers with secrets |
+| `make deploy-web` | Deploy | Build & deploy web app to Cloudflare Workers with secrets & DB URL |
 | `make deploy-all` | Deploy | Execute full pipeline: infra -> sync -> deploy agent -> deploy web |
-| `make rename` | Tooling | Rename the agent and web app across all project configs |
+| `make rename` | Tooling | Centralize and rename project across all services and configurations |
 
 ---
 
 ## 🔄 Renaming the Project / Creating a New Agent
 
-To customize this template for a new project, automatically update directory names, manifests, Terraform variables, and Cloudflare configurations:
+To customize this template for a new project, automatically update directory names, manifests, Terraform variables, database names, and Cloudflare configurations:
 
 ```bash
-make rename NAME=my-assistant WEB_NAME=my-assistant-web
+make rename NAME=my-assistant
 ```
+
+This single command centralizes the naming across:
+- **Vertex AI Agent**: `my-assistant` (`my_assistant`)
+- **Web Dashboard**: `my-assistant-web`
+- **Neon Project**: `my-assistant-db`
+- **Neon / Postgres DB**: `my_assistant_db`
+- **Upstash Redis**: `my-assistant-redis`
+- **WhatsApp Webhook**: `my-assistant-whatsapp`
+- **Service Accounts**: `my-assistant-whatsapp-sa`, `my-assistant-web-caller`
+- **Configuration Templates**: Updates database URLs in `web/.env.example`
 
 > [!IMPORTANT]
 > **Always sync your lockfile after renaming!**

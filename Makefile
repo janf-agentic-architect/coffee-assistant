@@ -1,18 +1,19 @@
+INFRA_DIR := infra
+TF_VARS := vars/env.tfvars
+PROJECT_NAME ?= $(shell grep 'project_name' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || echo "coffee-assistant")
 PROJECT_ID = $(shell terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || grep 'project_id' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || echo "agentic-ai-path")
 REGION := us-east1
-INFRA_DIR := infra
 AGENT_DIR := agents/coffee-assistant
 WEB_DIR := web
 CHANNELS_DIR := channels
 WHATSAPP_PORT := 8001
-TF_VARS := vars/env.tfvars
 
-# Ephemeral PostgreSQL configuration
-POSTGRES_CONTAINER_NAME ?= coffee-postgres-dev
+# Ephemeral PostgreSQL configuration derived from PROJECT_NAME
+POSTGRES_CONTAINER_NAME ?= $(PROJECT_NAME)-postgres-dev
 POSTGRES_PORT ?= 5432
 POSTGRES_USER ?= postgres
 POSTGRES_PASSWORD ?= postgres
-POSTGRES_DB ?= coffee_db
+POSTGRES_DB ?= $(subst -,_,$(PROJECT_NAME))_db
 POSTGRES_IMAGE ?= postgres:19-alpine
 POSTGRES_INIT_DIR ?= $(CURDIR)/infra/postgres-init
 
@@ -35,7 +36,6 @@ ifeq ($(filter $(CREATE_PROJECT),true 1 yes),$(CREATE_PROJECT))
   endif
 endif
 
-PROJECT_NAME ?= $(shell grep 'project_name' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || echo "coffee-assistant")
 ifeq ($(origin PROJECT_NAME),command line)
   TF_EXTRA_ARGS += -var="project_name=$(PROJECT_NAME)"
 endif
@@ -110,6 +110,11 @@ deploy-web: ## Install dependencies if missing, deploy web/, and configure GCP s
 	cd $(WEB_DIR) && printf "%s" "$$API_URL" | npx wrangler secret put AGENT_RUNTIME_API_URL
 	@terraform -chdir=$(INFRA_DIR) output -raw web_caller_sa_key_json | \
 		(cd $(WEB_DIR) && npx wrangler secret put GCP_SA_KEY_JSON)
+	@DB_URL=$$(terraform -chdir=$(INFRA_DIR) output -raw neon_database_url_pooled 2>/dev/null || echo ""); \
+	if [ -n "$$DB_URL" ]; then \
+		printf "%s" "$$DB_URL" | (cd $(WEB_DIR) && npx wrangler secret put DATABASE_URL); \
+		echo "✓ DATABASE_URL configured in Cloudflare Workers"; \
+	fi
 
 WHATSAPP_SECRETS_FILE := $(CHANNELS_DIR)/.secrets_args
 
@@ -172,6 +177,19 @@ db-seed: ## Seed database with sample data via TypeScript/Drizzle
 db-studio: ## Open Drizzle Studio in browser
 	cd $(WEB_DIR) && pnpm run db:studio
 
+get-db-secret: ## Print the pooled DATABASE_URL from GCP Secret Manager
+	@gcloud secrets versions access latest --secret=database-url --project=$$(terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || echo $(PROJECT_ID))
+
+db-neon-migrate: ## Run Drizzle migrations against Neon using direct connection from Secret Manager
+	@echo "==> Running Drizzle migrations against Neon..."
+	@DB_DIRECT_URL=$$(gcloud secrets versions access latest --secret=database-url-direct --project=$$(terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || echo $(PROJECT_ID))); \
+	cd $(WEB_DIR) && DATABASE_URL="$$DB_DIRECT_URL" pnpm exec drizzle-kit migrate
+
+db-neon-push: ## Push Drizzle schema directly to Neon using direct connection from Secret Manager
+	@echo "==> Pushing Drizzle schema directly to Neon..."
+	@DB_DIRECT_URL=$$(gcloud secrets versions access latest --secret=database-url-direct --project=$$(terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || echo $(PROJECT_ID))); \
+	cd $(WEB_DIR) && DATABASE_URL="$$DB_DIRECT_URL" pnpm exec drizzle-kit push
+
 dev-whatsapp: ## Run WhatsApp webhook development server
 	cd $(CHANNELS_DIR) && uv run uvicorn whatsapp.main:app --host 0.0.0.0 --port $(WHATSAPP_PORT) --reload
 
@@ -186,31 +204,46 @@ dev-whatsapp-tunnel: ## Run WhatsApp webhook and expose via ngrok concurrently
 	sleep 1; \
 	ngrok http $(WHATSAPP_PORT)
 
-rename: ## Rename the agent and web app (usage: make rename NAME=my-agent [WEB_NAME=my-web])
+rename: ## Centralize and rename project across all services (usage: make rename NAME=my-agent)
 	@if [ -z "$(NAME)" ]; then \
-		echo "❌ Usage: make rename NAME=my-agent [WEB_NAME=my-web]"; \
+		echo "❌ Usage: make rename NAME=my-agent"; \
 		exit 1; \
 	fi
 	@NEW_NAME="$(NAME)"; \
 	SNAKE_NAME=$$(echo "$$NEW_NAME" | tr '-' '_'); \
-	NEW_WEB_NAME="$${WEB_NAME:-$$NEW_NAME-web}"; \
+	NEW_WEB_NAME="$$NEW_NAME-web"; \
+	NEW_DB_NAME="$${SNAKE_NAME}_db"; \
 	OLD_DIR="$(AGENT_DIR)"; \
 	OLD_NAME=$$(basename "$$OLD_DIR"); \
 	OLD_SNAKE=$$(echo "$$OLD_NAME" | tr '-' '_'); \
 	NEW_DIR="agents/$$NEW_NAME"; \
+	echo "==> Centralizing and renaming project from '$$OLD_NAME' to '$$NEW_NAME'..."; \
 	sed -i "s/project_name = \".*\"/project_name = \"$$NEW_NAME\"/" $(INFRA_DIR)/vars/env.tfvars; \
 	sed -i "s/default     = \"$$OLD_NAME\"/default     = \"$$NEW_NAME\"/" $(INFRA_DIR)/variables.tf; \
 	sed -i "s/service_name=\\\"$$OLD_NAME\\\"/service_name=\\\"$$NEW_NAME\\\"/" $(INFRA_DIR)/variables.tf; \
-	sed -i "s/^name: .*/name: $$NEW_NAME/" "$$OLD_DIR/agents-cli-manifest.yaml"; \
-	sed -i "s/root_agent_name: .*/root_agent_name: $$SNAKE_NAME/" "$$OLD_DIR/agents-cli-manifest.yaml"; \
-	sed -i "s/^name = \".*\"/name = \"$$NEW_NAME\"/" "$$OLD_DIR/pyproject.toml"; \
-	sed -i "s/name=\"$$OLD_SNAKE\"/name=\"$$SNAKE_NAME\"/" "$$OLD_DIR/app/agent.py"; \
-	sed -i "s/app.title = \".*\"/app.title = \"$$NEW_NAME\"/" "$$OLD_DIR/app/fast_api_app.py"; \
-	sed -i "s/Agent $$OLD_NAME/Agent $$NEW_NAME/" "$$OLD_DIR/app/fast_api_app.py"; \
+	sed -i "s/^name: .*/name: $$NEW_NAME/" "$$OLD_DIR/agents-cli-manifest.yaml" 2>/dev/null || true; \
+	sed -i "s/root_agent_name: .*/root_agent_name: $$SNAKE_NAME/" "$$OLD_DIR/agents-cli-manifest.yaml" 2>/dev/null || true; \
+	sed -i "s/^name = \".*\"/name = \"$$NEW_NAME\"/" "$$OLD_DIR/pyproject.toml" 2>/dev/null || true; \
+	sed -i "s/name=\"$$OLD_SNAKE\"/name=\"$$SNAKE_NAME\"/" "$$OLD_DIR/app/agent.py" 2>/dev/null || true; \
+	sed -i "s/app.title = \".*\"/app.title = \"$$NEW_NAME\"/" "$$OLD_DIR/app/fast_api_app.py" 2>/dev/null || true; \
+	sed -i "s/Agent $$OLD_NAME/Agent $$NEW_NAME/" "$$OLD_DIR/app/fast_api_app.py" 2>/dev/null || true; \
 	sed -i "s/\"name\": \".*\"/\"name\": \"$$NEW_WEB_NAME\"/" $(WEB_DIR)/wrangler.jsonc; \
+	if [ -f "$(WEB_DIR)/.env" ]; then \
+		sed -i -E "s|localhost:5432/[a-zA-Z0-9_]+|localhost:5432/$$NEW_DB_NAME|" $(WEB_DIR)/.env; \
+	fi; \
+	if [ -f "$(WEB_DIR)/.env.example" ]; then \
+		sed -i -E "s|localhost:5432/[a-zA-Z0-9_]+|localhost:5432/$$NEW_DB_NAME|" $(WEB_DIR)/.env.example; \
+	fi; \
 	if [ "$$OLD_DIR" != "$$NEW_DIR" ]; then \
 		mv "$$OLD_DIR" "$$NEW_DIR"; \
 		sed -i "s|^AGENT_DIR := .*|AGENT_DIR := $$NEW_DIR|" Makefile; \
 	fi; \
 	rm -f "$$NEW_DIR/deployment_metadata.json"; \
-	echo "✓ Renamed agent to '$$NEW_NAME' ($$SNAKE_NAME) in $$NEW_DIR and web to '$$NEW_WEB_NAME'"
+	echo "✓ Project name centralized to: '$$NEW_NAME'"; \
+	echo "  • Vertex AI Agent:    $$NEW_NAME ($$SNAKE_NAME)"; \
+	echo "  • Web Dashboard:      $$NEW_WEB_NAME"; \
+	echo "  • Neon Project:       $$NEW_NAME-db"; \
+	echo "  • Neon / Postgres DB: $$NEW_DB_NAME"; \
+	echo "  • Upstash Redis:      $$NEW_NAME-redis"; \
+	echo "  • WhatsApp Webhook:   $$NEW_NAME-whatsapp"; \
+	echo "  • Service Accounts:   $$NEW_NAME-whatsapp-sa, $$NEW_NAME-web-caller"
