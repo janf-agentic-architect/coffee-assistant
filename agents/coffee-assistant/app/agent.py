@@ -17,6 +17,7 @@ import datetime
 import os
 from zoneinfo import ZoneInfo
 
+from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.apps import App
 from google.adk.models import Gemini
@@ -24,8 +25,9 @@ from google.genai import types
 
 from app.rate_limiter import UpstashRateLimitPlugin
 
+load_dotenv()
 
-MODEL = "gemini-3.5-flash-lite"
+MODEL = os.getenv("MODEL", "gemini-3.5-flash-lite")
 
 
 def get_weather(query: str) -> str:

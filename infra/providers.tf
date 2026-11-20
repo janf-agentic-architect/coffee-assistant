@@ -27,14 +27,11 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.7.0"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.14.0"
+    }
   }
-}
-
-provider "google" {
-  alias                 = "billing_override"
-  billing_project       = var.project_id
-  region                = var.region
-  user_project_override = true
 }
 
 # Enables local.bootstrap_services only. user_project_override is deliberately

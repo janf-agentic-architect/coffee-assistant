@@ -22,7 +22,7 @@ resource "google_vertex_ai_reasoning_engine" "app" {
   display_name = var.project_name
   description  = "Agent deployed via Terraform"
   region       = var.region
-  project      = var.project_id
+  project      = local.project_id
 
   spec {
     agent_framework = var.agent_framework

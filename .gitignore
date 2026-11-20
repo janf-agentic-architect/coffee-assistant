@@ -15,7 +15,6 @@ terraform.rc
 # Local variables / secrets
 .env
 *.tfvars
-!infra/vars/env.tfvars
 
 # Per-instance deployment metadata
 agents/*/deployment_metadata.json

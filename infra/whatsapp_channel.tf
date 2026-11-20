@@ -20,7 +20,7 @@ variable "whatsapp_image" {
 
 # Artifact Registry repository for storing WhatsApp channel container images
 resource "google_artifact_registry_repository" "whatsapp" {
-  project       = var.project_id
+  project       = local.project_id
   location      = var.region
   repository_id = "${var.project_name}-whatsapp"
   description   = "Docker repository for WhatsApp Webhook service"
@@ -31,7 +31,7 @@ resource "google_artifact_registry_repository" "whatsapp" {
 # Secret Manager resources for WhatsApp Cloud API credentials
 resource "google_secret_manager_secret" "whatsapp_token" {
   secret_id = "whatsapp-token"
-  project   = var.project_id
+  project   = local.project_id
 
   replication {
     auto {}
@@ -51,7 +51,7 @@ resource "google_secret_manager_secret_version" "whatsapp_token_initial" {
 
 resource "google_secret_manager_secret" "whatsapp_phone_number_id" {
   secret_id = "whatsapp-phone-number-id"
-  project   = var.project_id
+  project   = local.project_id
 
   replication {
     auto {}
@@ -71,7 +71,7 @@ resource "google_secret_manager_secret_version" "whatsapp_phone_number_id_initia
 
 resource "google_secret_manager_secret" "whatsapp_verify_token" {
   secret_id = "whatsapp-verify-token"
-  project   = var.project_id
+  project   = local.project_id
 
   replication {
     auto {}
@@ -91,7 +91,7 @@ resource "google_secret_manager_secret_version" "whatsapp_verify_token_initial" 
 
 resource "google_secret_manager_secret" "whatsapp_app_secret" {
   secret_id = "whatsapp-app-secret"
-  project   = var.project_id
+  project   = local.project_id
 
   replication {
     auto {}
@@ -113,27 +113,27 @@ resource "google_secret_manager_secret_version" "whatsapp_app_secret_initial" {
 resource "google_service_account" "whatsapp_channel_sa" {
   account_id   = "${var.project_name}-whatsapp-sa"
   display_name = "Cloud Run WhatsApp Channel SA for ${var.project_name}"
-  project      = var.project_id
+  project      = local.project_id
   depends_on   = [google_project_service.services]
 }
 
 # Allow WhatsApp channel SA to invoke Vertex AI Reasoning Engine / Agent Runtime
 resource "google_project_iam_member" "whatsapp_channel_aiplatform" {
-  project = var.project_id
+  project = local.project_id
   role    = "roles/aiplatform.user"
   member  = "serviceAccount:${google_service_account.whatsapp_channel_sa.email}"
 }
 
 # Allow WhatsApp channel SA to access Secret Manager secrets
 resource "google_project_iam_member" "whatsapp_channel_secrets" {
-  project = var.project_id
+  project = local.project_id
   role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.whatsapp_channel_sa.email}"
 }
 
 # Allow WhatsApp channel SA to write logs
 resource "google_project_iam_member" "whatsapp_channel_logging" {
-  project = var.project_id
+  project = local.project_id
   role    = "roles/logging.logWriter"
   member  = "serviceAccount:${google_service_account.whatsapp_channel_sa.email}"
 }
@@ -142,7 +142,7 @@ resource "google_project_iam_member" "whatsapp_channel_logging" {
 resource "google_cloud_run_v2_service" "whatsapp_channel" {
   name     = "${var.project_name}-whatsapp"
   location = var.region
-  project  = var.project_id
+  project  = local.project_id
   ingress  = "INGRESS_TRAFFIC_ALL"
 
   template {
@@ -165,7 +165,7 @@ resource "google_cloud_run_v2_service" "whatsapp_channel" {
 
       env {
         name  = "ADK_API_URL"
-        value = "https://${var.region}-aiplatform.googleapis.com/reasoningEngines/v1/projects/${data.google_project.project.number}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.app.name}/api"
+        value = "https://${var.region}-aiplatform.googleapis.com/reasoningEngines/v1/projects/${local.project_number}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.app.name}/api"
       }
       env {
         name  = "ADK_APP_NAME"
@@ -240,7 +240,7 @@ resource "google_cloud_run_v2_service" "whatsapp_channel" {
 
 # Public invocations for Meta WhatsApp Webhook
 resource "google_cloud_run_v2_service_iam_member" "whatsapp_public_invoker" {
-  project  = var.project_id
+  project  = local.project_id
   location = var.region
   name     = google_cloud_run_v2_service.whatsapp_channel.name
   role     = "roles/run.invoker"

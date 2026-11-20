@@ -1,4 +1,4 @@
-# chat-assistant
+# coffee-assistant
 
 Simple ReAct agent
 Agent generated with `agents-cli` version `1.14.0`
@@ -6,7 +6,7 @@ Agent generated with `agents-cli` version `1.14.0`
 ## Project Structure
 
 ```
-chat-assistant/
+coffee-assistant/
 ├── app/         # Core agent code
 │   ├── agent.py               # Main agent logic
 │   ├── fast_api_app.py        # FastAPI Backend server

@@ -2,7 +2,7 @@
 
 resource "google_secret_manager_secret" "upstash_redis_url" {
   secret_id = "upstash-redis-url"
-  project   = var.project_id
+  project   = local.project_id
 
   replication {
     auto {}
@@ -13,7 +13,7 @@ resource "google_secret_manager_secret" "upstash_redis_url" {
 
 resource "google_secret_manager_secret" "upstash_redis_token" {
   secret_id = "upstash-redis-token"
-  project   = var.project_id
+  project   = local.project_id
 
   replication {
     auto {}

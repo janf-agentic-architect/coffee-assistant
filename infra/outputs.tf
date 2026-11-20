@@ -12,6 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+output "project_id" {
+  description = "The Google Cloud Project ID"
+  value       = local.project_id
+}
+
+output "project_number" {
+  description = "The Google Cloud Project Number"
+  value       = local.project_number
+}
+
 output "logs_bucket_name" {
   description = "Logs storage bucket name"
   value       = google_storage_bucket.logs_data_bucket.name

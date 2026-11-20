@@ -1,4 +1,4 @@
-PROJECT_ID := agentic-ai-path
+PROJECT_ID = $(shell terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || grep 'project_id' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || echo "agentic-ai-path")
 REGION := us-east1
 INFRA_DIR := infra
 AGENT_DIR := agents/coffee-assistant
@@ -7,9 +7,31 @@ CHANNELS_DIR := channels
 WHATSAPP_PORT := 8001
 TF_VARS := vars/env.tfvars
 
-PROJECT_NAME ?= $(shell grep 'project_name' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || echo "chat-assistant")
+# Flags for dynamic project creation
+CREATE_PROJECT ?= false
+
+# Auto-detect if project is already managed by Terraform in the current state
+STATE_HAS_PROJECT := $(shell terraform -chdir=$(INFRA_DIR) state list 2>/dev/null | grep -q 'google_project.project' && echo "true" || echo "false")
+ifeq ($(STATE_HAS_PROJECT),true)
+  CREATE_PROJECT := true
+endif
+
+BILLING_ACCOUNT ?= $(shell gcloud billing accounts list --filter="open=true" --format="value(ACCOUNT_ID)" --limit=1 2>/dev/null)
+
+TF_EXTRA_ARGS :=
+ifeq ($(filter $(CREATE_PROJECT),true 1 yes),$(CREATE_PROJECT))
+  TF_EXTRA_ARGS += -var="create_project=true"
+  ifneq ($(strip $(BILLING_ACCOUNT)),)
+    TF_EXTRA_ARGS += -var="billing_account=$(BILLING_ACCOUNT)"
+  endif
+endif
+
+PROJECT_NAME ?= $(shell grep 'project_name' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || echo "coffee-assistant")
+ifeq ($(origin PROJECT_NAME),command line)
+  TF_EXTRA_ARGS += -var="project_name=$(PROJECT_NAME)"
+endif
 WHATSAPP_SERVICE_NAME := $(PROJECT_NAME)-whatsapp
-WHATSAPP_IMAGE_TAG := $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
+WHATSAPP_IMAGE_TAG = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
 
 .PHONY: help infra-init infra-plan infra sync-metadata sync-secrets sync-whatsapp-secrets build-whatsapp deploy-whatsapp deploy-agent deploy-web deploy-status deploy-all dev-agent dev-web dev-whatsapp tunnel-whatsapp dev-whatsapp-tunnel rename
 
@@ -20,13 +42,30 @@ infra-init: ## Initialize Terraform in infra/
 	terraform -chdir=$(INFRA_DIR) init
 
 infra-plan: ## Preview infrastructure changes in GCP
-	terraform -chdir=$(INFRA_DIR) plan -var-file="$(TF_VARS)"
+	terraform -chdir=$(INFRA_DIR) plan -var-file="$(TF_VARS)" $(TF_EXTRA_ARGS)
 
 infra: infra-init ## Apply Terraform infrastructure and sync Agent Runtime ID
-	terraform -chdir=$(INFRA_DIR) apply -var-file="$(TF_VARS)"
+	terraform -chdir=$(INFRA_DIR) apply -var-file="$(TF_VARS)" $(TF_EXTRA_ARGS)
 	@$(MAKE) sync-metadata
 
-sync-metadata: ## Sync agent_runtime_resource_name from Terraform to deployment_metadata.json
+sync-metadata: ## Sync agent_runtime_resource_name and project_id from Terraform
+	@CURRENT_PROJECT_ID=$$(terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || true); \
+	if [ -n "$$CURRENT_PROJECT_ID" ]; then \
+		echo "✓ Active Project ID: $$CURRENT_PROJECT_ID"; \
+		gcloud config set project "$$CURRENT_PROJECT_ID" 2>/dev/null || true; \
+		if [ -f "$(INFRA_DIR)/vars/env.tfvars" ]; then \
+			if grep -q '^[# ]*project_id[ ]*=' $(INFRA_DIR)/vars/env.tfvars; then \
+				sed -i -E "s/^[# ]*project_id[ ]*=.*/project_id = \"$$CURRENT_PROJECT_ID\"/" $(INFRA_DIR)/vars/env.tfvars; \
+			else \
+				echo "project_id = \"$$CURRENT_PROJECT_ID\"" >> $(INFRA_DIR)/vars/env.tfvars; \
+			fi; \
+			echo "✓ Synchronized project_id in $(INFRA_DIR)/vars/env.tfvars: $$CURRENT_PROJECT_ID"; \
+		fi; \
+		if [ -f "$(AGENT_DIR)/.env" ]; then \
+			sed -i -E "s/^[# ]*GOOGLE_CLOUD_PROJECT[ ]*=.*/GOOGLE_CLOUD_PROJECT=$$CURRENT_PROJECT_ID/" $(AGENT_DIR)/.env; \
+			echo "✓ Synchronized GOOGLE_CLOUD_PROJECT in $(AGENT_DIR)/.env: $$CURRENT_PROJECT_ID"; \
+		fi; \
+	fi
 	@ENGINE_ID=$$(terraform -chdir=$(INFRA_DIR) output -raw agent_runtime_resource_name 2>/dev/null || true); \
 	if [ -n "$$ENGINE_ID" ]; then \
 		case "$$ENGINE_ID" in \

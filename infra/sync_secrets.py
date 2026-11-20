@@ -23,7 +23,12 @@ def sync_secrets(env_file: str, project_id: str, output_file: str):
             val = val.strip().strip("\"'")
 
             # System/platform variables must remain plaintext env vars, not Secret Manager secrets
-            if key in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_GENAI_USE_ENTERPRISE", "GOOGLE_CLOUD_LOCATION"]:
+            if key in [
+                "GOOGLE_CLOUD_PROJECT",
+                "GOOGLE_GENAI_USE_ENTERPRISE",
+                "GOOGLE_CLOUD_LOCATION",
+                "MODEL",
+            ]:
                 continue
 
             secret_id = key.lower().replace("_", "-")

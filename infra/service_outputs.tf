@@ -14,12 +14,12 @@
 
 output "agent_runtime_resource_name" {
   description = "Agent Runtime resource name"
-  value       = "projects/${data.google_project.project.number}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.app.name}"
+  value       = "projects/${local.project_number}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.app.name}"
 }
 
 output "agent_runtime_api_url" {
   description = "Agent Runtime HTTP passthrough base URL"
-  value       = "https://${var.region}-aiplatform.googleapis.com/reasoningEngines/v1/projects/${data.google_project.project.number}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.app.name}/api"
+  value       = "https://${var.region}-aiplatform.googleapis.com/reasoningEngines/v1/projects/${local.project_number}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.app.name}/api"
 }
 
 output "web_caller_sa_key_json" {

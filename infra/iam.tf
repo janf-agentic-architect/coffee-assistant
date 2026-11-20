@@ -14,7 +14,7 @@
 
 locals {
   project_ids = {
-    default = var.project_id
+    default = local.project_id
   }
 }
 
@@ -22,16 +22,17 @@ locals {
 # Get the project number. depends_on defers the read to apply time, after
 # bootstrap has enabled Cloud Resource Manager.
 data "google_project" "project" {
-  project_id = var.project_id
+  count      = var.create_project ? 0 : 1
+  project_id = local.project_id
 
   depends_on = [google_project_service.bootstrap]
 }
 
 # Grant Storage Object Creator role to default compute service account
 resource "google_project_iam_member" "default_compute_sa_storage_object_creator" {
-  project    = var.project_id
+  project    = local.project_id
   role       = "roles/cloudbuild.builds.builder"
-  member     = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+  member     = "serviceAccount:${local.project_number}-compute@developer.gserviceaccount.com"
   depends_on = [resource.google_project_service.services]
 }
 
@@ -43,7 +44,7 @@ resource "google_project_iam_member" "vertex_ai_sa_permissions" {
     join(",", pair) => pair[1]
   }
 
-  project = var.project_id
+  project = local.project_id
   role    = each.value
   member  = google_project_service_identity.vertex_sa.member
   depends_on = [resource.google_project_service.services]
@@ -53,7 +54,7 @@ resource "google_project_iam_member" "vertex_ai_sa_permissions" {
 resource "google_project_iam_member" "agent_identity_roles" {
   for_each = toset(var.agent_identity_roles)
 
-  project = var.project_id
+  project = local.project_id
   role    = each.value
   member  = "principal://${google_vertex_ai_reasoning_engine.app.spec[0].effective_identity}"
 }
@@ -68,12 +69,12 @@ resource "google_storage_bucket_iam_member" "agent_identity_logs_bucket" {
 resource "google_service_account" "web_caller" {
   account_id   = "${var.project_name}-web-caller"
   display_name = "Cloudflare Worker caller for ${var.project_name}"
-  project      = var.project_id
+  project      = local.project_id
   depends_on   = [google_project_service.services]
 }
 
 resource "google_project_iam_member" "web_caller_aiplatform" {
-  project = var.project_id
+  project = local.project_id
   role    = "roles/aiplatform.user"
   member  = "serviceAccount:${google_service_account.web_caller.email}"
 }

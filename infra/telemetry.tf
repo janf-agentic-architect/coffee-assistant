@@ -14,7 +14,7 @@
 
 # BigQuery dataset for telemetry external tables
 resource "google_bigquery_dataset" "telemetry_dataset" {
-  project       = var.project_id
+  project       = local.project_id
   dataset_id    = replace("${var.project_name}_telemetry", "-", "_")
   friendly_name = "${var.project_name} Telemetry"
   location      = var.region
@@ -24,7 +24,7 @@ resource "google_bigquery_dataset" "telemetry_dataset" {
 
 # BigQuery connection for accessing GCS telemetry data
 resource "google_bigquery_connection" "genai_telemetry_connection" {
-  project       = var.project_id
+  project       = local.project_id
   location      = var.region
   connection_id = "${var.project_name}-genai-telemetry"
   friendly_name = "${var.project_name} GenAI Telemetry Connection"
@@ -57,8 +57,8 @@ resource "google_storage_bucket_iam_member" "telemetry_connection_access" {
 # Log sink to route GenAI telemetry logs directly to BigQuery
 resource "google_logging_project_sink" "genai_logs_to_bq" {
   name        = "${var.project_name}-genai-logs"
-  project     = var.project_id
-  destination = "bigquery.googleapis.com/projects/${var.project_id}/datasets/${google_bigquery_dataset.telemetry_dataset.dataset_id}"
+  project     = local.project_id
+  destination = "bigquery.googleapis.com/projects/${local.project_id}/datasets/${google_bigquery_dataset.telemetry_dataset.dataset_id}"
   # Match GenAI completion logs on the event.name label (the log id, and hence
   # the BigQuery sink table name, varies by deployment target).
   filter      = "labels.\"event.name\"=\"gen_ai.client.inference.operation.details\" AND (labels.\"gen_ai.input.messages_ref\" =~ \".*${var.project_name}.*\" OR labels.\"gen_ai.output.messages_ref\" =~ \".*${var.project_name}.*\")"
@@ -72,12 +72,21 @@ resource "google_logging_project_sink" "genai_logs_to_bq" {
   depends_on = [google_bigquery_dataset.telemetry_dataset]
 }
 
+# Wait for the log sink service account to propagate in IAM
+resource "time_sleep" "wait_for_log_sink_writer" {
+  create_duration = "15s"
+
+  depends_on = [google_logging_project_sink.genai_logs_to_bq]
+}
+
 # Grant log sink service accounts write access to the BigQuery dataset
 resource "google_bigquery_dataset_iam_member" "genai_logs_bq_writer" {
-  project    = var.project_id
+  project    = local.project_id
   dataset_id = google_bigquery_dataset.telemetry_dataset.dataset_id
   role       = "roles/bigquery.dataEditor"
   member     = google_logging_project_sink.genai_logs_to_bq.writer_identity
+
+  depends_on = [time_sleep.wait_for_log_sink_writer]
 }
 
 # ====================================================================
@@ -86,7 +95,7 @@ resource "google_bigquery_dataset_iam_member" "genai_logs_bq_writer" {
 
 # External table for completions data (messages/parts) stored in GCS
 resource "google_bigquery_table" "completions_external_table" {
-  project             = var.project_id
+  project             = local.project_id
   dataset_id          = google_bigquery_dataset.telemetry_dataset.dataset_id
   table_id            = "completions"
   deletion_protection = false
@@ -140,7 +149,7 @@ resource "google_bigquery_table" "completions_external_table" {
 # gen_ai.conversation.id → labels.gen_ai_conversation_id).
 
 resource "google_bigquery_table" "genai_logs_table" {
-  project             = var.project_id
+  project             = local.project_id
   dataset_id          = google_bigquery_dataset.telemetry_dataset.dataset_id
   table_id            = "aiplatform_googleapis_com_reasoning_engine_stdout"
   deletion_protection = false
@@ -177,7 +186,7 @@ resource "google_bigquery_table" "genai_logs_table" {
 
 # View that joins BigQuery log export data with GCS-stored completions data
 resource "google_bigquery_table" "completions_view" {
-  project             = var.project_id
+  project             = local.project_id
   dataset_id          = google_bigquery_dataset.telemetry_dataset.dataset_id
   table_id            = "completions_view"
   description         = "View of GenAI completion logs joined with the GCS prompt/response external table"
@@ -185,7 +194,7 @@ resource "google_bigquery_table" "completions_view" {
 
   view {
     query = templatefile("${path.module}/shared/completions.sql", {
-      project_id                 = var.project_id
+      project_id                 = local.project_id
       dataset_id                 = google_bigquery_dataset.telemetry_dataset.dataset_id
       completions_external_table = google_bigquery_table.completions_external_table.table_id
       genai_logs_table           = google_bigquery_table.genai_logs_table.table_id

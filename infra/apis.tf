@@ -40,16 +40,18 @@ resource "google_project_service" "bootstrap" {
   provider = google.api_bootstrap
   for_each = toset(local.bootstrap_services)
 
-  project            = var.project_id
+  project            = local.project_id
   service            = each.value
   disable_on_destroy = false
+
+  depends_on = [time_sleep.wait_for_project]
 }
 
 # for_each, not count, so adding or removing an API does not renumber the rest.
 resource "google_project_service" "services" {
   for_each = toset(local.services)
 
-  project            = var.project_id
+  project            = local.project_id
   service            = each.value
   disable_on_destroy = false
 
@@ -58,6 +60,6 @@ resource "google_project_service" "services" {
 
 resource "google_project_service_identity" "vertex_sa" {
   provider = google-beta
-  project = var.project_id
-  service = "aiplatform.googleapis.com"
+  project  = local.project_id
+  service  = "aiplatform.googleapis.com"
 }

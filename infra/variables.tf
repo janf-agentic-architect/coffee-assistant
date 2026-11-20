@@ -20,7 +20,32 @@ variable "project_name" {
 
 variable "project_id" {
   type        = string
-  description = "Google Cloud Project ID for resource deployment."
+  description = "Google Cloud Project ID for resource deployment. Ignored if create_project is true."
+  default     = null
+}
+
+variable "create_project" {
+  type        = bool
+  description = "Whether to create a new Google Cloud Project automatically"
+  default     = false
+}
+
+variable "billing_account" {
+  type        = string
+  description = "The billing account ID to associate with the new project (required if create_project is true)"
+  default     = null
+}
+
+variable "org_id" {
+  type        = string
+  description = "The organization ID for the new project. Optional."
+  default     = null
+}
+
+variable "folder_id" {
+  type        = string
+  description = "The folder ID for the new project. Optional."
+  default     = null
 }
 
 variable "region" {

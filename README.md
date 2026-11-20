@@ -1,10 +1,10 @@
-# 🤖 Fullstack ADK Chat Assistant Template
+# ☕ Fullstack ADK Coffee Assistant Template
 
 A production-ready fullstack template for developing, testing, and deploying multimodal conversational agents powered by **Google ADK (Agent Development Kit)** and **Gemini**.
 
 Equipped with a modern web interface built with **React + @assistant-ui** deployable to **Cloudflare Workers**, an omnichannel **WhatsApp Cloud API** integration channel deployable to **Google Cloud Run**, automated distributed rate limiting via **Upstash Redis**, and Infrastructure as Code with **Terraform** on **Google Cloud Platform (GCP)**.
 
-🔗 **Live Demo:** [https://chat-assistant-web.janf-agentic-architect.workers.dev/](https://chat-assistant-web.janf-agentic-architect.workers.dev/)
+🔗 **Live Demo:** [https://coffee-assistant-web.janf-agentic-architect.workers.dev/](https://coffee-assistant-web.janf-agentic-architect.workers.dev/)
 
 ---
 
@@ -16,7 +16,7 @@ Equipped with a modern web interface built with **React + @assistant-ui** deploy
 - **📱 WhatsApp Cloud API on Cloud Run**: Dedicated FastAPI microservice handling webhooks, Meta media downloads, Base64 formatting for ADK, and persistent per-phone sessions—ready for local dev (ngrok) or serverless deployment on **GCP Cloud Run**.
 - **🛡️ Distributed Rate Limiting**: Built-in `UpstashRateLimitPlugin` for ADK protecting agent endpoints from abuse.
 - **🔐 Secret Synchronization**: Automated synchronization between local environment variables and **GCP Secret Manager** with seamless injection during deployment.
-- **☁️ Vertex AI Agent Runtime**: Infrastructure as Code with Terraform to provision Vertex AI Reasoning Engine, Cloud Storage, Artifact Registry, and BigQuery logging sinks.
+- **☁️ Vertex AI Agent Runtime & Automated GCP Projects**: Terraform IaC to either deploy into an existing project or provision an entirely new GCP project from scratch with automatic billing association, API enablement, and metadata synchronization.
 
 ---
 
@@ -71,7 +71,7 @@ flowchart TD
 .
 ├── Makefile                     # Task automation (dev, infra, secrets, deploy, channels, rename)
 ├── agents/                      # ADK Agents
-│   └── chat-assistant/          # Conversational agent implementation
+│   └── coffee-assistant/        # Conversational agent implementation
 │       ├── app/
 │       │   ├── agent.py         # Root agent definition, tools & plugins
 │       │   ├── fast_api_app.py  # FastAPI server for local execution
@@ -104,16 +104,19 @@ flowchart TD
 │   ├── wrangler.jsonc           # Cloudflare Workers configuration
 │   └── package.json             # Node.js dependencies (pnpm)
 └── infra/                       # Infrastructure as Code (Terraform)
+    ├── project.tf               # Conditional GCP project creation & suffix generator
     ├── apis.tf                  # Google Cloud APIs enablement (Vertex AI, Cloud Run, etc.)
     ├── iam.tf                   # Service Accounts, roles, and keys for Web Caller
     ├── secrets.tf               # Secret Manager resources for Agent
     ├── service.tf               # Vertex AI Reasoning Engine / Agent Runtime
     ├── storage.tf               # Storage and logging buckets
-    ├── telemetry.tf             # Logging and BigQuery sinks
+    ├── telemetry.tf             # Logging and BigQuery sinks (with SA propagation delay)
     ├── whatsapp_channel.tf      # Cloud Run service, SA, and Secret Manager for WhatsApp
     ├── whatsapp_outputs.tf      # Cloud Run URL, Webhook URL, and Artifact Registry outputs
     ├── sync_secrets.py          # Automatic local .env to Secret Manager sync script
-    └── vars/env.tfvars          # Terraform environment variables
+    └── vars/
+        ├── env.tfvars.example   # Example variables (tracked in git)
+        └── env.tfvars           # Active deployment variables (gitignored)
 ```
 
 ---
@@ -155,7 +158,7 @@ Start the interactive development environment (`agents-cli` Playground):
 ```bash
 make dev-agent
 ```
-> Or directly within `agents/chat-assistant`: `agents-cli playground`
+> Or directly within `agents/coffee-assistant`: `agents-cli playground`
 
 ### 2. Run the Web Application Locally
 
@@ -208,7 +211,7 @@ For detailed webhook setup in Meta Developer Portal, see [channels/whatsapp/READ
 ## 🔐 Secrets & Rate Limiting
 
 ### Automated Secret Manager Sync
-Any sensitive configuration placed in `agents/chat-assistant/.env` or `channels/whatsapp/.env` can be synced to GCP Secret Manager:
+Any sensitive configuration placed in `agents/coffee-assistant/.env` or `channels/whatsapp/.env` can be synced to GCP Secret Manager:
 
 ```bash
 # Sync agent secrets (Upstash credentials, API keys)
@@ -226,7 +229,7 @@ This utility:
 ### Upstash Redis Rate Limiting
 The agent incorporates `UpstashRateLimitPlugin` implementing a sliding window algorithm:
 ```python
-# agents/chat-assistant/app/agent.py
+# agents/coffee-assistant/app/agent.py
 rate_limiter = UpstashRateLimitPlugin(
     max_requests=int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "50")),
     window_seconds=int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "86400")),
@@ -240,20 +243,48 @@ If limits are exceeded, a polite fallback message is returned without consuming 
 
 The project provides automated commands to provision infrastructure on GCP, deploy the agent to Vertex AI, publish the web app to Cloudflare Workers, and deploy the WhatsApp channel to Cloud Run.
 
-### 1. Full Core Deployment (Agent + Web)
+### 1. GCP Project & Infrastructure Provisioning (`make infra`)
+
+Terraform can either deploy into an existing project or create a brand new GCP project automatically:
+
+#### Option A: Create a New GCP Project Automatically
+```bash
+make infra CREATE_PROJECT=true PROJECT_NAME="coffee-assistant"
+```
+- Creates a new GCP project (e.g. `coffee-assistant-bab9d2`) with a unique random suffix.
+- Automatically detects and links your active open Google Cloud Billing Account.
+- Enables all required APIs (Vertex AI, Cloud Run, Secret Manager, Cloud Build, BigQuery, etc.).
+- Sincroniza automáticamente el `project_id` generado en:
+  - `infra/vars/env.tfvars` (ignorado en git)
+  - `agents/coffee-assistant/.env`
+  - `deployment_metadata.json`
+  - `gcloud config set project <PROJECT_ID>`
+
+#### Option B: Deploy into an Existing GCP Project
+```bash
+make infra PROJECT_ID="your-existing-project-id"
+```
+Or define `project_id = "your-existing-project-id"` in `infra/vars/env.tfvars`.
+
+---
+
+### 2. Full Core Deployment (Agent + Web)
+
+To provision/update infrastructure and deploy both the Agent and Web UI in one go:
 
 ```bash
 make deploy-all
 ```
 
-This command executes the following steps sequentially:
-1. **Infrastructure (`make infra`)**: Applies Terraform in `infra/`, provisions Vertex AI Reasoning Engine, creates storage buckets, sets up Secret Manager, and generates Service Account credentials.
-2. **Metadata Sync (`make sync-metadata`)**: Synchronizes the Agent Runtime Resource ID to `deployment_metadata.json`.
-3. **Secrets Sync (`make sync-secrets`)**: Syncs all environment variables from `agents/chat-assistant/.env` into GCP Secret Manager.
-4. **Agent Deployment (`make deploy-agent`)**: Packages and deploys the agent to Vertex AI Agent Runtime using `agents-cli deploy` with bound secrets.
-5. **Web Deployment (`make deploy-web`)**: Builds and deploys the frontend to Cloudflare Workers, automatically injecting `AGENT_RUNTIME_API_URL` and `GCP_SA_KEY_JSON`.
+Or step-by-step:
+1. **Infrastructure (`make infra`)**: Provisions GCP resources and synchronizes project metadata.
+2. **Secrets Sync (`make sync-secrets`)**: Syncs all environment variables from `agents/coffee-assistant/.env` into GCP Secret Manager.
+3. **Agent Deployment (`make deploy-agent`)**: Packages and deploys the agent to Vertex AI Agent Runtime using `agents-cli deploy` with bound secrets.
+4. **Web Deployment (`make deploy-web`)**: Builds and deploys the frontend to Cloudflare Workers, automatically injecting `AGENT_RUNTIME_API_URL` and `GCP_SA_KEY_JSON`.
 
-### 2. WhatsApp Channel Deployment (Cloud Run)
+---
+
+### 3. WhatsApp Channel Deployment (Cloud Run)
 
 To deploy the WhatsApp webhook microservice to Google Cloud Run:
 
@@ -286,9 +317,9 @@ After deployment, copy the `whatsapp_webhook_url` output and configure it in you
 | `make dev-whatsapp-tunnel`| Local Dev | Concurrently start WhatsApp webhook & ngrok tunnel |
 | `make infra-init` | Infra | Initialize Terraform providers and backend |
 | `make infra-plan` | Infra | Preview GCP infrastructure changes with Terraform |
-| `make infra` | Infra | Apply GCP infrastructure and synchronize metadata |
-| `make sync-metadata` | Infra | Write Agent Runtime ID from Terraform to `deployment_metadata.json` |
-| `make sync-secrets` | Secrets | Synchronize `agents/chat-assistant/.env` to GCP Secret Manager |
+| `make infra` | Infra | Apply GCP infrastructure (supports `CREATE_PROJECT=true PROJECT_NAME=...` or `PROJECT_ID=...`) |
+| `make sync-metadata` | Infra | Sync active Project ID and Reasoning Engine ID to configs |
+| `make sync-secrets` | Secrets | Synchronize `agents/coffee-assistant/.env` to GCP Secret Manager |
 | `make sync-whatsapp-secrets` | Secrets | Synchronize `channels/whatsapp/.env` to GCP Secret Manager |
 | `make build-whatsapp` | Channels | Build & push WhatsApp container image to Artifact Registry |
 | `make deploy-whatsapp` | Channels | Build, sync secrets, and deploy WhatsApp webhook to Cloud Run |
@@ -301,7 +332,7 @@ After deployment, copy the `whatsapp_webhook_url` output and configure it in you
 
 ---
 
-## 🔄 Renaming the Project
+## 🔄 Renaming the Project / Creating a New Agent
 
 To customize this template for a new project, automatically update directory names, manifests, Terraform variables, and Cloudflare configurations:
 
@@ -309,13 +340,22 @@ To customize this template for a new project, automatically update directory nam
 make rename NAME=my-assistant WEB_NAME=my-assistant-web
 ```
 
+> [!IMPORTANT]
+> **Always sync your lockfile after renaming!**
+> When changing the agent package name in `pyproject.toml`, run:
+> ```bash
+> cd agents/my-assistant
+> uv lock
+> ```
+> This keeps `uv.lock` in sync with `pyproject.toml`, preventing container build errors (`Missing workspace member`) during `agents-cli deploy`.
+
 ---
 
 ## 🧪 Testing and Evaluation
 
 ### Agent Unit & Integration Tests
 ```bash
-cd agents/chat-assistant
+cd agents/coffee-assistant
 uv run pytest tests/unit tests/integration
 ```
 
@@ -329,7 +369,7 @@ uv run pytest tests/
 ### LLM Evaluation
 Run automated quality evaluations against your dataset:
 ```bash
-cd agents/chat-assistant
+cd agents/coffee-assistant
 agents-cli eval
 ```
 
