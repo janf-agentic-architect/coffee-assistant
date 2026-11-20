@@ -7,6 +7,15 @@ CHANNELS_DIR := channels
 WHATSAPP_PORT := 8001
 TF_VARS := vars/env.tfvars
 
+# Ephemeral PostgreSQL configuration
+POSTGRES_CONTAINER_NAME ?= coffee-postgres-dev
+POSTGRES_PORT ?= 5432
+POSTGRES_USER ?= postgres
+POSTGRES_PASSWORD ?= postgres
+POSTGRES_DB ?= coffee_db
+POSTGRES_IMAGE ?= postgres:19-alpine
+POSTGRES_INIT_DIR ?= $(CURDIR)/infra/postgres-init
+
 # Flags for dynamic project creation
 CREATE_PROJECT ?= false
 
@@ -33,7 +42,7 @@ endif
 WHATSAPP_SERVICE_NAME := $(PROJECT_NAME)-whatsapp
 WHATSAPP_IMAGE_TAG = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
 
-.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets sync-whatsapp-secrets build-whatsapp deploy-whatsapp deploy-agent deploy-web deploy-status deploy-all dev-agent dev-web dev-whatsapp tunnel-whatsapp dev-whatsapp-tunnel rename
+.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets sync-whatsapp-secrets build-whatsapp deploy-whatsapp deploy-agent deploy-web deploy-status deploy-all dev-agent dev-agent-api dev-web dev-whatsapp tunnel-whatsapp dev-whatsapp-tunnel dev-db db-push db-studio db-seed rename
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -132,8 +141,36 @@ deploy-all: infra deploy-agent deploy-web ## Provision infrastructure, deploy th
 dev-agent: ## Run local agent playground
 	cd $(AGENT_DIR) && agents-cli playground
 
+dev-agent-api: ## Run local agent FastAPI backend on port 8080 (required by web chat)
+	cd $(AGENT_DIR) && uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload
+
 dev-web: ## Run web/ development server
 	cd $(WEB_DIR) && pnpm dev
+
+dev-db: ## Run an ephemeral PostgreSQL container with Docker (stops and removes on Ctrl+C)
+	@echo "Starting ephemeral PostgreSQL container on port $(POSTGRES_PORT)..."
+	@echo "Database: $(POSTGRES_DB) | User: $(POSTGRES_USER) | Password: $(POSTGRES_PASSWORD)"
+	@echo "Connection URL: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)"
+	@echo "Seed data directory: $(POSTGRES_INIT_DIR)"
+	@echo "Press Ctrl+C to stop and remove container."
+	@docker rm -f $(POSTGRES_CONTAINER_NAME) 2>/dev/null || true
+	@trap 'docker stop $(POSTGRES_CONTAINER_NAME) >/dev/null 2>&1 || true' INT TERM EXIT; \
+	docker run --rm --name $(POSTGRES_CONTAINER_NAME) \
+		-e POSTGRES_USER=$(POSTGRES_USER) \
+		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		-e POSTGRES_DB=$(POSTGRES_DB) \
+		-v $(POSTGRES_INIT_DIR):/docker-entrypoint-initdb.d:ro \
+		-p $(POSTGRES_PORT):5432 \
+		$(POSTGRES_IMAGE)
+
+db-push: ## Push Drizzle schema to database
+	cd $(WEB_DIR) && pnpm run db:push
+
+db-seed: ## Seed database with sample data via TypeScript/Drizzle
+	cd $(WEB_DIR) && pnpm run db:seed
+
+db-studio: ## Open Drizzle Studio in browser
+	cd $(WEB_DIR) && pnpm run db:studio
 
 dev-whatsapp: ## Run WhatsApp webhook development server
 	cd $(CHANNELS_DIR) && uv run uvicorn whatsapp.main:app --host 0.0.0.0 --port $(WHATSAPP_PORT) --reload
