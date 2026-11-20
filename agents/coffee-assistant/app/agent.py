@@ -1,0 +1,90 @@
+# ruff: noqa
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import datetime
+import os
+from zoneinfo import ZoneInfo
+
+from google.adk.agents import Agent
+from google.adk.apps import App
+from google.adk.models import Gemini
+from google.genai import types
+
+from app.rate_limiter import UpstashRateLimitPlugin
+
+
+MODEL = "gemini-3.5-flash-lite"
+
+
+def get_weather(query: str) -> str:
+    """Simulates a web search. Use it get information on weather.
+
+    Args:
+        query: A string containing the location to get weather information for.
+
+    Returns:
+        A string with the simulated weather information for the queried location.
+    """
+    if "sf" in query.lower() or "san francisco" in query.lower():
+        return "It's 60 degrees and foggy."
+    return "It's 90 degrees and sunny."
+
+
+def get_current_time(query: str) -> str:
+    """Simulates getting the current time for a city.
+
+    Args:
+        city: The name of the city to get the current time for.
+
+    Returns:
+        A string with the current time information.
+    """
+    if "sf" in query.lower() or "san francisco" in query.lower():
+        tz_identifier = "America/Los_Angeles"
+    else:
+        return f"Sorry, I don't have timezone information for query: {query}."
+
+    tz = ZoneInfo(tz_identifier)
+    now = datetime.datetime.now(tz)
+    return f"The current time for query {query} is {now.strftime('%Y-%m-%d %H:%M:%S %Z%z')}"
+
+
+root_agent = Agent(
+    # Keep in sync with create_params.root_agent_name in agents-cli-manifest.yaml:
+    # telemetry reports this name as gen_ai.agent.name, and agents-cli reports the
+    # manifest's value. Renaming the agent only here makes the two disagree, and
+    # anything selecting traces by name stops finding this agent's.
+    name="coffee_assistant",
+    model=Gemini(
+        model=MODEL,
+        retry_options=types.HttpRetryOptions(attempts=3),
+    ),
+    instruction=(
+        "You are a helpful AI assistant designed to provide accurate and useful information. "
+        "You can understand and analyze multimodal inputs including images and audio files provided by the user."
+    ),
+    tools=[get_weather, get_current_time],
+)
+
+rate_limiter = UpstashRateLimitPlugin(
+    max_requests=int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "50")),
+    window_seconds=int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "86400")),
+)
+
+app = App(
+    root_agent=root_agent,
+    name="app",
+    plugins=[rate_limiter],
+)
