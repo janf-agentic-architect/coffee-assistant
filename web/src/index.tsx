@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, asc } from 'drizzle-orm'
 import { renderer } from './renderer'
 import { Dashboard } from './components/Dashboard'
 import { getGcpAccessToken } from './gcp-auth'
-import { getDb, coffeeOrders } from './db'
+import { getDb, coffeeOrders, products, customers } from './db'
 
 type Bindings = {
   AGENT_RUNTIME_API_URL?: string
@@ -56,7 +56,7 @@ app.all('/api/adk/*', async (c) => {
   }
 })
 
-// Database endpoints using Drizzle ORM
+// Database endpoints using Drizzle ORM: Orders
 app.get('/api/orders', async (c) => {
   try {
     const db = getDb(c.env?.DATABASE_URL)
@@ -132,6 +132,148 @@ app.delete('/api/orders/:id', async (c) => {
       .where(eq(coffeeOrders.id, id))
       .returning()
     if (!deleted) return c.json({ error: 'Order not found' }, 404)
+    return c.json({ success: true, deleted })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+// Database endpoints using Drizzle ORM: Products
+app.get('/api/products', async (c) => {
+  try {
+    const db = getDb(c.env?.DATABASE_URL)
+    const items = await db.select().from(products).orderBy(asc(products.name))
+    return c.json(items)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.post('/api/products', async (c) => {
+  try {
+    const body = await c.req.json()
+    const db = getDb(c.env?.DATABASE_URL)
+    const [newProduct] = await db.insert(products).values({
+      name: body.name,
+      category: body.category || 'Café Caliente',
+      price: String(body.price ?? '0.00'),
+      description: body.description,
+      available: body.available !== undefined ? Boolean(body.available) : true,
+    }).returning()
+    return c.json(newProduct, 201)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 400)
+  }
+})
+
+app.patch('/api/products/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const body = await c.req.json()
+    const db = getDb(c.env?.DATABASE_URL)
+    const [updated] = await db
+      .update(products)
+      .set({
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.category !== undefined ? { category: body.category } : {}),
+        ...(body.price !== undefined ? { price: String(body.price) } : {}),
+        ...(body.description !== undefined ? { description: body.description } : {}),
+        ...(body.available !== undefined ? { available: Boolean(body.available) } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, id))
+      .returning()
+    if (!updated) return c.json({ error: 'Product not found' }, 404)
+    return c.json(updated)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.delete('/api/products/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const db = getDb(c.env?.DATABASE_URL)
+    const [deleted] = await db
+      .delete(products)
+      .where(eq(products.id, id))
+      .returning()
+    if (!deleted) return c.json({ error: 'Product not found' }, 404)
+    return c.json({ success: true, deleted })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+// Database endpoints using Drizzle ORM: Customers
+app.get('/api/customers', async (c) => {
+  try {
+    const db = getDb(c.env?.DATABASE_URL)
+    const items = await db.select().from(customers).orderBy(desc(customers.loyaltyPoints), asc(customers.name))
+    return c.json(items)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.post('/api/customers', async (c) => {
+  try {
+    const body = await c.req.json()
+    const db = getDb(c.env?.DATABASE_URL)
+    const [newCustomer] = await db.insert(customers).values({
+      name: body.name,
+      email: body.email || null,
+      phone: body.phone || null,
+      favoriteDrink: body.favoriteDrink || null,
+      loyaltyPoints: Number(body.loyaltyPoints) || 0,
+    }).returning()
+    return c.json(newCustomer, 201)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 400)
+  }
+})
+
+app.patch('/api/customers/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const body = await c.req.json()
+    const db = getDb(c.env?.DATABASE_URL)
+    const [updated] = await db
+      .update(customers)
+      .set({
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.email !== undefined ? { email: body.email } : {}),
+        ...(body.phone !== undefined ? { phone: body.phone } : {}),
+        ...(body.favoriteDrink !== undefined ? { favoriteDrink: body.favoriteDrink } : {}),
+        ...(body.loyaltyPoints !== undefined ? { loyaltyPoints: Number(body.loyaltyPoints) } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(customers.id, id))
+      .returning()
+    if (!updated) return c.json({ error: 'Customer not found' }, 404)
+    return c.json(updated)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.delete('/api/customers/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const db = getDb(c.env?.DATABASE_URL)
+    const [deleted] = await db
+      .delete(customers)
+      .where(eq(customers.id, id))
+      .returning()
+    if (!deleted) return c.json({ error: 'Customer not found' }, 404)
     return c.json({ success: true, deleted })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'

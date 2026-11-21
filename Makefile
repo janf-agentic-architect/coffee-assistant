@@ -42,7 +42,7 @@ endif
 WHATSAPP_SERVICE_NAME := $(PROJECT_NAME)-whatsapp
 WHATSAPP_IMAGE_TAG = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
 
-.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets sync-whatsapp-secrets build-whatsapp deploy-whatsapp deploy-agent deploy-web deploy-status deploy-all dev-agent dev-agent-api dev-web dev-whatsapp tunnel-whatsapp dev-whatsapp-tunnel dev-db db-push db-studio db-seed rename
+.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets sync-whatsapp-secrets build-whatsapp deploy-whatsapp deploy-agent deploy-web deploy-status deploy-all dev-agent dev-agent-api dev-web dev-whatsapp tunnel-whatsapp dev-whatsapp-tunnel dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -193,6 +193,11 @@ db-neon-push: ## Push Drizzle schema directly to Neon using direct connection fr
 	@echo "==> Pushing Drizzle schema directly to Neon..."
 	@DB_DIRECT_URL=$$(gcloud secrets versions access latest --secret=database-url-direct --project=$$(terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || echo $(PROJECT_ID))); \
 	cd $(WEB_DIR) && DATABASE_URL="$$DB_DIRECT_URL" pnpm exec drizzle-kit push
+
+db-neon-seed: ## Seed Neon database with sample data using direct connection from Secret Manager
+	@echo "==> Seeding Neon database..."
+	@DB_DIRECT_URL=$$(gcloud secrets versions access latest --secret=database-url-direct --project=$$(terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || echo $(PROJECT_ID))); \
+	cd $(WEB_DIR) && DATABASE_URL="$$DB_DIRECT_URL" pnpm run db:seed
 
 dev-whatsapp: ## Run WhatsApp webhook development server
 	cd $(CHANNELS_DIR) && uv run uvicorn whatsapp.main:app --host 0.0.0.0 --port $(WHATSAPP_PORT) --reload

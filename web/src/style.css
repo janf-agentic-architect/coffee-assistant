@@ -988,6 +988,119 @@ body {
   width: 80px;
 }
 
+.w-28 {
+  width: 110px;
+}
+
+/* Dashboard Section Navigation Tabs */
+.dashboard-nav-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.15rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.75rem;
+}
+
+.nav-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #475569;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.55rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nav-tab-btn:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.nav-tab-btn.active {
+  background-color: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.15);
+}
+
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  background-color: #e2e8f0;
+  color: #334155;
+}
+
+.nav-tab-btn.active .nav-badge {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.stat-subvalue {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #d97706;
+}
+
+.product-avatar {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.category-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  background-color: #e0f2fe;
+  color: #0369a1;
+  font-weight: 600;
+  font-size: 0.76rem;
+  border-radius: 0.35rem;
+}
+
+.price-cell {
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.loyalty-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.6rem;
+  background-color: #f3e8ff;
+  color: #6b21a8;
+  font-weight: 700;
+  font-size: 0.78rem;
+  border-radius: 9999px;
+}
+
+.contact-info {
+  font-size: 0.8rem;
+  color: #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.checkbox-label {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

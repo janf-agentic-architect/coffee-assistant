@@ -232,7 +232,8 @@ The project includes a robust, edge-ready data persistence layer:
 
 ### Schema Design (`web/src/db/schema.ts`)
 - **`coffee_orders`**: Stores order details (`id`, `customerName`, `coffeeType`, `quantity`, `status`, `notes`, `createdAt`, `updatedAt`).
-- **`chat_messages`**: Stores conversation history and session-linked messages (`id`, `sessionId`, `role`, `content`, `createdAt`).
+- **`products`**: Stores the coffee shop product catalog (`id`, `name`, `category`, `price`, `description`, `available`, `createdAt`, `updatedAt`).
+- **`customers`**: Stores registered customers and loyalty points (`id`, `name`, `email`, `phone`, `favoriteDrink`, `loyaltyPoints`, `createdAt`, `updatedAt`).
 
 ### Local vs. Production Workflow
 1. **Local Development**:
