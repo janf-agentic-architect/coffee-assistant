@@ -8,5 +8,7 @@ __pycache__
 .coverage
 htmlcov
 .env
+**/.env
 .env.local
+**/.env.local
 .DS_Store

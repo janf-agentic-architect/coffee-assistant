@@ -18,7 +18,7 @@ POSTGRES_IMAGE ?= postgres:19-alpine
 POSTGRES_INIT_DIR ?= $(CURDIR)/infra/postgres-init
 
 # Flags for dynamic project creation
-CREATE_PROJECT ?= false
+CREATE_PROJECT ?= $(shell grep -E '^[[:space:]]*create_project[[:space:]]*=[[:space:]]*true' $(INFRA_DIR)/vars/env.tfvars >/dev/null 2>&1 && echo "true" || echo "false")
 
 # Auto-detect if project is already managed by Terraform in the current state
 STATE_HAS_PROJECT := $(shell terraform -chdir=$(INFRA_DIR) state list 2>/dev/null | grep -q 'google_project.project' && echo "true" || echo "false")
@@ -26,7 +26,8 @@ ifeq ($(STATE_HAS_PROJECT),true)
   CREATE_PROJECT := true
 endif
 
-BILLING_ACCOUNT ?= $(shell gcloud billing accounts list --filter="open=true" --format="value(ACCOUNT_ID)" --limit=1 2>/dev/null)
+TFVARS_BILLING_ACCOUNT := $(shell grep -E '^[[:space:]]*billing_account[[:space:]]*=' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2)
+BILLING_ACCOUNT ?= $(shell if [ -n "$(TFVARS_BILLING_ACCOUNT)" ]; then echo "$(TFVARS_BILLING_ACCOUNT)"; else gcloud billing accounts list --filter="open=true" --format="value(ACCOUNT_ID)" --limit=1 2>/dev/null; fi)
 
 TF_EXTRA_ARGS :=
 ifeq ($(filter $(CREATE_PROJECT),true 1 yes),$(CREATE_PROJECT))
@@ -42,7 +43,7 @@ endif
 WHATSAPP_SERVICE_NAME := $(PROJECT_NAME)-whatsapp
 WHATSAPP_IMAGE_TAG = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
 
-.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets sync-whatsapp-secrets build-whatsapp deploy-whatsapp deploy-agent deploy-web deploy-status deploy-all dev-agent dev-agent-api dev-web dev-whatsapp tunnel-whatsapp dev-whatsapp-tunnel dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
+.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -67,6 +68,12 @@ sync-metadata: ## Sync agent_runtime_resource_name and project_id from Terraform
 				sed -i -E "s/^[# ]*project_id[ ]*=.*/project_id = \"$$CURRENT_PROJECT_ID\"/" $(INFRA_DIR)/vars/env.tfvars; \
 			else \
 				echo "project_id = \"$$CURRENT_PROJECT_ID\"" >> $(INFRA_DIR)/vars/env.tfvars; \
+			fi; \
+			if [ "$(CREATE_PROJECT)" = "true" ] || [ "$(STATE_HAS_PROJECT)" = "true" ]; then \
+				sed -i -E 's/^[# ]*create_project[ ]*=.*/create_project  = true/' $(INFRA_DIR)/vars/env.tfvars; \
+				if [ -n "$(BILLING_ACCOUNT)" ]; then \
+					sed -i -E "s/^[# ]*billing_account[ ]*=.*/billing_account = \"$(BILLING_ACCOUNT)\"/" $(INFRA_DIR)/vars/env.tfvars; \
+				fi; \
 			fi; \
 			echo "✓ Synchronized project_id in $(INFRA_DIR)/vars/env.tfvars: $$CURRENT_PROJECT_ID"; \
 		fi; \
@@ -122,16 +129,11 @@ deploy-web: ## Install dependencies if missing, deploy web/, and configure GCP s
 		echo "✓ GCP_IDENTITY_API_KEY and GCP_PROJECT_ID configured in Cloudflare Workers"; \
 	fi
 
-WHATSAPP_SECRETS_FILE := $(CHANNELS_DIR)/.secrets_args
-
-sync-whatsapp-secrets: ## Sync WhatsApp credentials from channels/whatsapp/.env into GCP Secret Manager
-	@python3 $(INFRA_DIR)/sync_secrets.py $(CHANNELS_DIR)/whatsapp/.env $(PROJECT_ID) $(WHATSAPP_SECRETS_FILE)
-
 build-whatsapp: ## Build and push WhatsApp webhook container image to Artifact Registry
 	@echo "Building WhatsApp container image via Cloud Build..."
 	gcloud builds submit $(CHANNELS_DIR) --tag $(WHATSAPP_IMAGE_TAG) --project $(PROJECT_ID)
 
-deploy-whatsapp: build-whatsapp ## Build, deploy WhatsApp webhook to Cloud Run, and auto-configure Meta webhook & WABA
+deploy-whatsapp: build-whatsapp ## Build, deploy WhatsApp webhook to Cloud Run, and auto-configure Meta webhook & WABA (from GCP Secret Manager)
 	@echo "Deploying WhatsApp service to Cloud Run..."
 	gcloud run deploy $(WHATSAPP_SERVICE_NAME) \
 		--image $(WHATSAPP_IMAGE_TAG) \
@@ -141,25 +143,32 @@ deploy-whatsapp: build-whatsapp ## Build, deploy WhatsApp webhook to Cloud Run, 
 	@WEBHOOK_URL=$$(terraform -chdir=$(INFRA_DIR) output -raw whatsapp_webhook_url 2>/dev/null || echo "$$(gcloud run services describe $(WHATSAPP_SERVICE_NAME) --region $(REGION) --project $(PROJECT_ID) --format 'value(status.url)')/webhooks/whatsapp"); \
 	VERIFY_TOKEN=$$(terraform -chdir=$(INFRA_DIR) output -raw whatsapp_verify_token 2>/dev/null || echo ""); \
 	echo "Webhook Callback URL: $$WEBHOOK_URL"; \
-	cd $(CHANNELS_DIR) && uv run python -m whatsapp.subscribe_waba --webhook-url "$$WEBHOOK_URL" --verify-token "$$VERIFY_TOKEN"
+	cd $(CHANNELS_DIR) && WHATSAPP_IGNORE_DOTENV=1 uv run python -m whatsapp.subscribe_waba --from-gcp --project-id "$(PROJECT_ID)" --webhook-url "$$WEBHOOK_URL" --verify-token "$$VERIFY_TOKEN"
 
-subscribe-whatsapp-waba: ## Auto-discover Meta WABA, register Cloud Run Webhook URL, and subscribe WABA
+subscribe-whatsapp-waba: ## Auto-discover Meta WABA, register Cloud Run Webhook URL, and subscribe WABA (from GCP Secret Manager)
 	@WEBHOOK_URL=$$(terraform -chdir=$(INFRA_DIR) output -raw whatsapp_webhook_url 2>/dev/null || echo ""); \
 	VERIFY_TOKEN=$$(terraform -chdir=$(INFRA_DIR) output -raw whatsapp_verify_token 2>/dev/null || echo ""); \
-	cd $(CHANNELS_DIR) && uv run python -m whatsapp.subscribe_waba --webhook-url "$$WEBHOOK_URL" --verify-token "$$VERIFY_TOKEN"
+	cd $(CHANNELS_DIR) && WHATSAPP_IGNORE_DOTENV=1 uv run python -m whatsapp.subscribe_waba --from-gcp --project-id "$(PROJECT_ID)" --webhook-url "$$WEBHOOK_URL" --verify-token "$$VERIFY_TOKEN"
 
 deploy-status: ## Check the status of an ongoing deployment in Agent Runtime
 	cd $(AGENT_DIR) && agents-cli deploy --status
 
-deploy-all: infra deploy-agent deploy-web ## Provision infrastructure, deploy the agent, and deploy web/
+deploy-all: infra deploy-agent deploy-web deploy-whatsapp ## Provision infra and deploy agent, web, and WhatsApp
+
+dev: ## Quick start: Run Agent API (8080) + Web Dashboard (3000) together
+	@echo "==> Starting Agent API (port 8080) and Web Dashboard (port 3000)..."
+	@(cd $(AGENT_DIR) && uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload) & \
+	AGENT_PID=$$!; \
+	trap 'kill $$AGENT_PID 2>/dev/null || true' INT TERM EXIT; \
+	cd $(WEB_DIR) && pnpm dev
 
 dev-agent: ## Run local agent playground
 	cd $(AGENT_DIR) && agents-cli playground
 
-dev-agent-api: ## Run local agent FastAPI backend on port 8080 (required by web chat)
+dev-agent-api: ## [Debug] Run only local agent FastAPI backend on port 8080
 	cd $(AGENT_DIR) && uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload
 
-dev-web: ## Run web/ development server
+dev-web: ## [Debug] Run only web/ development server
 	cd $(WEB_DIR) && pnpm dev
 
 dev-db: ## Run an ephemeral PostgreSQL container with Docker (stops and removes on Ctrl+C)
@@ -205,13 +214,7 @@ db-neon-seed: ## Seed Neon database with sample data using direct connection fro
 	@DB_DIRECT_URL=$$(gcloud secrets versions access latest --secret=database-url-direct --project=$$(terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || echo $(PROJECT_ID))); \
 	cd $(WEB_DIR) && DATABASE_URL="$$DB_DIRECT_URL" pnpm run db:seed
 
-dev-whatsapp: ## Run WhatsApp webhook development server
-	cd $(CHANNELS_DIR) && uv run uvicorn whatsapp.main:app --host 0.0.0.0 --port $(WHATSAPP_PORT) --reload
-
-tunnel-whatsapp: ## Expose WhatsApp webhook port via ngrok
-	ngrok http $(WHATSAPP_PORT)
-
-dev-whatsapp-tunnel: ## Run WhatsApp webhook, expose via ngrok, and auto-register ngrok URL in Meta
+dev-whatsapp: ## Quick start: Run WhatsApp webhook + ngrok tunnel + auto-register URL in Meta
 	@echo "Starting WhatsApp webhook server and ngrok tunnel on port $(WHATSAPP_PORT)..."; \
 	(cd $(CHANNELS_DIR) && uv run uvicorn whatsapp.main:app --host 0.0.0.0 --port $(WHATSAPP_PORT) --reload) & \
 	SERVER_PID=$$!; \
@@ -220,6 +223,14 @@ dev-whatsapp-tunnel: ## Run WhatsApp webhook, expose via ngrok, and auto-registe
 	trap 'kill $$SERVER_PID $$SUB_PID 2>/dev/null || true' INT TERM EXIT; \
 	sleep 1; \
 	ngrok http $(WHATSAPP_PORT)
+
+dev-whatsapp-server: ## [Debug] Run only WhatsApp webhook FastAPI server (without ngrok)
+	cd $(CHANNELS_DIR) && uv run uvicorn whatsapp.main:app --host 0.0.0.0 --port $(WHATSAPP_PORT) --reload
+
+tunnel-whatsapp: ## [Debug] Run only ngrok tunnel on port $(WHATSAPP_PORT)
+	ngrok http $(WHATSAPP_PORT)
+
+dev-whatsapp-tunnel: dev-whatsapp ## Alias for dev-whatsapp
 
 rename: ## Centralize and rename project across all services (usage: make rename NAME=my-agent)
 	@if [ -z "$(NAME)" ]; then \

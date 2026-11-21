@@ -17,9 +17,10 @@ search_paths = [
     repo_root / "agents" / "chat-assistant" / ".env",
     repo_root / ".env",
 ]
-for env_path in search_paths:
-    if env_path.exists():
-        load_dotenv(env_path, override=False)
+if os.getenv("WHATSAPP_IGNORE_DOTENV", "").lower() not in ("1", "true", "yes"):
+    for env_path in search_paths:
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
 
 
 def _load_tfvars_dict() -> dict[str, str]:

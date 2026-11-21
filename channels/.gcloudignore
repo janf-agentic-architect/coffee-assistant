@@ -10,5 +10,7 @@ __pycache__/
 .coverage
 htmlcov/
 .env
+whatsapp/.env
 .env.local
+whatsapp/.env.local
 .DS_Store

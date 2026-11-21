@@ -34,11 +34,21 @@ resource "google_project" "project" {
   org_id              = var.org_id
   folder_id           = var.folder_id
   auto_create_network = false
+
+  lifecycle {
+    precondition {
+      condition     = var.billing_account != null && trimspace(var.billing_account) != ""
+      error_message = "billing_account must be provided when create_project = true so Terraform never creates or updates the project without an active billing account."
+    }
+  }
 }
 
-# Wait for GCP Resource Manager and Service Usage APIs to settle for the new project
+# Wait for GCP Resource Manager, Billing propagation, and Service Usage APIs to settle
 resource "time_sleep" "wait_for_project" {
   count           = var.create_project ? 1 : 0
-  create_duration = "10s"
-  depends_on      = [google_project.project]
+  create_duration = "30s"
+  triggers = {
+    billing_account = var.billing_account
+  }
+  depends_on = [google_project.project]
 }

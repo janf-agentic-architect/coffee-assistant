@@ -1,10 +1,37 @@
 import argparse
 import asyncio
 import os
+import subprocess
 import sys
 import httpx
 from .client import WhatsAppCloudApiClient
-from .config import settings
+from .config import _TFVARS, _clean_val, settings
+
+
+def _get_gcp_secret(secret_id: str, project_id: str) -> str:
+    """Read latest secret version directly from GCP Secret Manager."""
+    if not project_id:
+        return ""
+    try:
+        res = subprocess.run(
+            [
+                "gcloud",
+                "secrets",
+                "versions",
+                "access",
+                "latest",
+                f"--secret={secret_id}",
+                f"--project={project_id}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res.returncode == 0:
+            return _clean_val(res.stdout)
+    except Exception:
+        pass
+    return ""
 
 
 async def detect_ngrok_webhook_url(retries: int = 10, delay: float = 1.0) -> str:
@@ -25,16 +52,39 @@ async def detect_ngrok_webhook_url(retries: int = 10, delay: float = 1.0) -> str
     return ""
 
 
-async def subscribe_waba(webhook_url: str = "", verify_token: str = "", auto_ngrok: bool = False) -> None:
-    token = settings.WHATSAPP_TOKEN.strip()
-    app_secret = settings.WHATSAPP_APP_SECRET.strip()
-    waba_id = settings.WHATSAPP_BUSINESS_ACCOUNT_ID.strip()
-    verify_token = (verify_token or settings.WHATSAPP_VERIFY_TOKEN or "").strip()
+async def subscribe_waba(
+    webhook_url: str = "",
+    verify_token: str = "",
+    auto_ngrok: bool = False,
+    from_gcp: bool = False,
+    project_id: str = "",
+) -> None:
+    if from_gcp:
+        proj = project_id or _clean_val(_TFVARS.get("project_id", ""))
+        print(f"==> Leyendo credenciales de producción desde GCP Secret Manager / env.tfvars (proyecto: {proj or 'auto'})...")
+        token = _get_gcp_secret("whatsapp-token", proj) or _clean_val(_TFVARS.get("whatsapp_token", ""))
+        app_secret = _get_gcp_secret("whatsapp-app-secret", proj) or _clean_val(_TFVARS.get("whatsapp_app_secret", ""))
+        phone_id_cfg = _get_gcp_secret("whatsapp-phone-number-id", proj) or _clean_val(
+            _TFVARS.get("whatsapp_phone_number_id", "")
+        )
+        verify_token = (
+            verify_token
+            or _get_gcp_secret("whatsapp-verify-token", proj)
+            or _clean_val(_TFVARS.get("whatsapp_verify_token", ""))
+        ).strip()
+        waba_id = _clean_val(_TFVARS.get("whatsapp_waba_id", ""))
+    else:
+        token = settings.WHATSAPP_TOKEN.strip()
+        app_secret = settings.WHATSAPP_APP_SECRET.strip()
+        waba_id = settings.WHATSAPP_BUSINESS_ACCOUNT_ID.strip()
+        phone_id_cfg = settings.WHATSAPP_PHONE_NUMBER_ID.strip()
+        verify_token = (verify_token or settings.WHATSAPP_VERIFY_TOKEN or "").strip()
+
     webhook_url = (webhook_url or os.getenv("WHATSAPP_WEBHOOK_URL", "")).strip()
     api_version = settings.formatted_api_version
 
     if not token:
-        print("⚠️  WHATSAPP_TOKEN no está configurado (en infra/vars/env.tfvars o entorno). Omitiendo suscripción en Meta.")
+        print("⚠️  WHATSAPP_TOKEN no está configurado (en GCP Secret Manager / infra/vars/env.tfvars). Omitiendo suscripción en Meta.")
         sys.exit(0)
 
     if auto_ngrok and not webhook_url:
@@ -50,7 +100,7 @@ async def subscribe_waba(webhook_url: str = "", verify_token: str = "", auto_ngr
 
     app_id = discovered.get("app_id", "")
     waba_id = waba_id or discovered.get("waba_id", "")
-    phone_number_id = settings.WHATSAPP_PHONE_NUMBER_ID or discovered.get("phone_number_id", "")
+    phone_number_id = phone_id_cfg or discovered.get("phone_number_id", "")
     display_phone = discovered.get("display_phone_number", "")
 
     print(f"==> Meta Graph API Discovery ({api_version}):")
@@ -113,12 +163,20 @@ def main() -> None:
         action="store_true",
         help="Automatically detect running local ngrok tunnel and register its URL in Meta",
     )
+    parser.add_argument(
+        "--from-gcp",
+        action="store_true",
+        help="Read production credentials strictly from GCP Secret Manager / infra/vars/env.tfvars (ignores local .env)",
+    )
+    parser.add_argument("--project-id", default="", help="GCP Project ID for Secret Manager lookup")
     args = parser.parse_args()
     asyncio.run(
         subscribe_waba(
             webhook_url=args.webhook_url,
             verify_token=args.verify_token,
             auto_ngrok=args.auto_ngrok,
+            from_gcp=args.from_gcp,
+            project_id=args.project_id,
         )
     )
 
