@@ -1,13 +1,24 @@
 /** @jsxImportSource react */
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 
+export interface OrderItem {
+  id?: string
+  orderId?: string
+  productId?: string | null
+  productName: string
+  quantity: number
+  unitPrice: string
+  notes?: string | null
+}
+
 export interface Order {
   id: string
+  customerId?: string | null
   customerName: string
-  coffeeType: string
-  quantity: number
   status: 'pending' | 'completed' | 'cancelled' | string
+  totalAmount: string
   notes?: string | null
+  items: OrderItem[]
   createdAt: string
   updatedAt: string
 }
@@ -34,18 +45,25 @@ export interface Customer {
   updatedAt: string
 }
 
+interface DraftOrderItem {
+  productId?: string | null
+  productName: string
+  quantity: number
+  unitPrice: string
+  notes: string
+}
+
 type DashboardSection = 'orders' | 'products' | 'customers'
 
-const DEFAULT_COFFEE_OPTIONS = [
-  'Espresso',
-  'Espresso Doble',
-  'Americano',
-  'Cappuccino',
-  'Flat White',
-  'Latte',
-  'Cold Brew',
-  'Mocha',
-  'Caramel Macchiato',
+const DEFAULT_COFFEE_OPTIONS: Array<{ name: string; price: string }> = [
+  { name: 'Espresso', price: '3.00' },
+  { name: 'Espresso Doble', price: '3.75' },
+  { name: 'Flat White', price: '4.50' },
+  { name: 'Cappuccino Vainilla', price: '4.75' },
+  { name: 'Latte Caramelo', price: '5.00' },
+  { name: 'Cold Brew', price: '4.50' },
+  { name: 'Matcha Latte', price: '5.25' },
+  { name: 'Croissant de Almendras', price: '3.80' },
 ]
 
 const PRODUCT_CATEGORIES = [
@@ -78,11 +96,12 @@ export function OrdersDashboard() {
   const [showCustomerModal, setShowCustomerModal] = useState<boolean>(false)
   const [submitting, setSubmitting] = useState<boolean>(false)
 
-  // Order Form state
+  // Order Form state (Multi-product cart)
   const [customerName, setCustomerName] = useState('')
-  const [coffeeType, setCoffeeType] = useState('Espresso')
-  const [quantity, setQuantity] = useState(1)
-  const [notes, setNotes] = useState('')
+  const [orderNotes, setOrderNotes] = useState('')
+  const [draftItems, setDraftItems] = useState<DraftOrderItem[]>([
+    { productName: 'Espresso', quantity: 1, unitPrice: '3.00', notes: '' },
+  ])
 
   // Product Form state
   const [prodName, setProdName] = useState('')
@@ -146,11 +165,90 @@ export function OrdersDashboard() {
     fetchAllData()
   }, [fetchAllData])
 
-  // Available coffee options from DB products or default fallback
-  const coffeeOptions = useMemo(() => {
-    const activeProds = productsList.filter((p) => p.available).map((p) => p.name)
-    return activeProds.length > 0 ? activeProds : DEFAULT_COFFEE_OPTIONS
+  // Catalog of selectable products with price & id
+  const selectableCatalog = useMemo(() => {
+    const activeProds = productsList.filter((p) => p.available)
+    if (activeProds.length > 0) {
+      return activeProds.map((p) => ({
+        id: p.id,
+        name: p.name,
+        price: Number(p.price).toFixed(2),
+      }))
+    }
+    return DEFAULT_COFFEE_OPTIONS.map((d) => ({ id: null, name: d.name, price: d.price }))
   }, [productsList])
+
+  const openNewOrderModal = (prefillCustomer?: Customer) => {
+    const defaultProduct =
+      (prefillCustomer?.favoriteDrink &&
+        selectableCatalog.find((p) => p.name === prefillCustomer.favoriteDrink)) ||
+      selectableCatalog[0] || { id: null, name: 'Espresso', price: '3.00' }
+
+    setCustomerName(prefillCustomer ? prefillCustomer.name : '')
+    setOrderNotes('')
+    setDraftItems([
+      {
+        productId: defaultProduct.id,
+        productName: defaultProduct.name,
+        quantity: 1,
+        unitPrice: defaultProduct.price,
+        notes: '',
+      },
+    ])
+    setShowOrderModal(true)
+  }
+
+  const handleAddDraftItem = () => {
+    const first = selectableCatalog[0] || { id: null, name: 'Espresso', price: '3.00' }
+    setDraftItems((prev) => [
+      ...prev,
+      {
+        productId: first.id,
+        productName: first.name,
+        quantity: 1,
+        unitPrice: first.price,
+        notes: '',
+      },
+    ])
+  }
+
+  const handleRemoveDraftItem = (index: number) => {
+    setDraftItems((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
+  }
+
+  const handleDraftProductChange = (index: number, newProductName: string) => {
+    const found = selectableCatalog.find((p) => p.name === newProductName)
+    setDraftItems((prev) =>
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              productId: found?.id ?? null,
+              productName: newProductName,
+              unitPrice: found ? found.price : item.unitPrice,
+            }
+          : item
+      )
+    )
+  }
+
+  const handleDraftQuantityChange = (index: number, qty: number) => {
+    setDraftItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, quantity: Math.max(1, qty || 1) } : item))
+    )
+  }
+
+  const handleDraftNotesChange = (index: number, noteText: string) => {
+    setDraftItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, notes: noteText } : item))
+    )
+  }
+
+  const draftTotalAmount = useMemo(() => {
+    return draftItems.reduce((sum, item) => {
+      return sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1)
+    }, 0)
+  }, [draftItems])
 
   // ================= ORDERS ACTIONS =================
   const handleUpdateOrderStatus = async (id: string, newStatus: string) => {
@@ -187,7 +285,11 @@ export function OrdersDashboard() {
 
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!customerName.trim()) return
+    if (!customerName.trim() || draftItems.length === 0) return
+
+    const matchedCustomer = customersList.find(
+      (c) => c.name.toLowerCase() === customerName.trim().toLowerCase()
+    )
 
     try {
       setSubmitting(true)
@@ -195,11 +297,18 @@ export function OrdersDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          customerId: matchedCustomer?.id || null,
           customerName: customerName.trim(),
-          coffeeType,
-          quantity: Number(quantity) || 1,
-          notes: notes.trim() || undefined,
+          totalAmount: draftTotalAmount.toFixed(2),
+          notes: orderNotes.trim() || undefined,
           status: 'pending',
+          items: draftItems.map((item) => ({
+            productId: item.productId || null,
+            productName: item.productName,
+            quantity: Number(item.quantity) || 1,
+            unitPrice: item.unitPrice,
+            notes: item.notes.trim() || null,
+          })),
         }),
       })
 
@@ -211,8 +320,7 @@ export function OrdersDashboard() {
       setOrders((prev) => [created, ...prev])
       setShowOrderModal(false)
       setCustomerName('')
-      setNotes('')
-      setQuantity(1)
+      setOrderNotes('')
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Error al crear la orden')
     } finally {
@@ -364,10 +472,17 @@ export function OrdersDashboard() {
     return orders.filter((order) => {
       const matchesStatus = statusFilter === 'all' || order.status === statusFilter
       const query = searchQuery.toLowerCase().trim()
+      const matchesItems =
+        order.items &&
+        order.items.some(
+          (item) =>
+            item.productName.toLowerCase().includes(query) ||
+            (item.notes && item.notes.toLowerCase().includes(query))
+        )
       const matchesSearch =
         !query ||
         order.customerName.toLowerCase().includes(query) ||
-        order.coffeeType.toLowerCase().includes(query) ||
+        matchesItems ||
         (order.notes && order.notes.toLowerCase().includes(query))
       return matchesStatus && matchesSearch
     })
@@ -404,24 +519,30 @@ export function OrdersDashboard() {
     const pendingOrders = orders.filter((o) => o.status === 'pending').length
     const completedOrders = orders.filter((o) => o.status === 'completed').length
     const cancelledOrders = orders.filter((o) => o.status === 'cancelled').length
-    const totalCups = orders.reduce((sum, o) => sum + (o.quantity || 1), 0)
+    const totalItemsCount = orders.reduce(
+      (sum, o) =>
+        sum + (o.items ? o.items.reduce((acc, it) => acc + (it.quantity || 1), 0) : 0),
+      0
+    )
+    const totalRevenue = orders
+      .filter((o) => o.status !== 'cancelled')
+      .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
 
     const totalProducts = productsList.length
     const availableProducts = productsList.filter((p) => p.available).length
 
     const totalCustomers = customersList.length
-    const totalPoints = customersList.reduce((sum, c) => sum + (c.loyaltyPoints || 0), 0)
 
     return {
       totalOrders,
       pendingOrders,
       completedOrders,
       cancelledOrders,
-      totalCups,
+      totalItemsCount,
+      totalRevenue,
       totalProducts,
       availableProducts,
       totalCustomers,
-      totalPoints,
     }
   }, [orders, productsList, customersList])
 
@@ -443,7 +564,7 @@ export function OrdersDashboard() {
             <span className="coffee-icon">☕</span> Coffee Shop Dashboard
           </h1>
           <p className="orders-subtitle">
-            Gestión de Órdenes, Productos y Clientes con PostgreSQL & Drizzle ORM
+            Órdenes Multi-Producto, Catálogo y Clientes con PostgreSQL & Drizzle ORM
           </p>
         </div>
         <div className="orders-header-actions">
@@ -460,10 +581,7 @@ export function OrdersDashboard() {
             <button
               type="button"
               className="btn-new-order"
-              onClick={() => {
-                if (coffeeOptions.length > 0) setCoffeeType(coffeeOptions[0])
-                setShowOrderModal(true)
-              }}
+              onClick={() => openNewOrderModal()}
             >
               <span>+</span> Nueva Orden
             </button>
@@ -482,7 +600,7 @@ export function OrdersDashboard() {
               type="button"
               className="btn-new-order"
               onClick={() => {
-                if (coffeeOptions.length > 0) setCustFavoriteDrink(coffeeOptions[0])
+                if (selectableCatalog.length > 0) setCustFavoriteDrink(selectableCatalog[0].name)
                 setShowCustomerModal(true)
               }}
             >
@@ -536,8 +654,11 @@ export function OrdersDashboard() {
           </span>
         </div>
         <div className="stat-card stat-completed">
-          <span className="stat-label">Tazas Servidas</span>
-          <span className="stat-value">{stats.totalCups}</span>
+          <span className="stat-label">Ventas / Ítems</span>
+          <span className="stat-value">
+            ${stats.totalRevenue.toFixed(2)}{' '}
+            <small className="stat-subvalue-neutral">({stats.totalItemsCount} ítems)</small>
+          </span>
         </div>
         <div className="stat-card stat-pending">
           <span className="stat-label">Productos Activos</span>
@@ -576,7 +697,7 @@ export function OrdersDashboard() {
             type="text"
             placeholder={
               activeSection === 'orders'
-                ? 'Buscar orden por cliente, café o nota...'
+                ? 'Buscar orden por cliente, producto o nota...'
                 : activeSection === 'products'
                 ? 'Buscar producto por nombre, categoría o descripción...'
                 : 'Buscar cliente por nombre, email, teléfono o bebida...'
@@ -677,7 +798,7 @@ export function OrdersDashboard() {
                 <button
                   type="button"
                   className="btn-new-order"
-                  onClick={() => setShowOrderModal(true)}
+                  onClick={() => openNewOrderModal()}
                 >
                   + Crear la primera orden
                 </button>
@@ -688,8 +809,8 @@ export function OrdersDashboard() {
               <thead>
                 <tr>
                   <th>Cliente</th>
-                  <th>Café</th>
-                  <th className="text-center">Cant.</th>
+                  <th>Productos ({'order_items'})</th>
+                  <th className="text-right">Total</th>
                   <th>Estado</th>
                   <th>Hora</th>
                   <th className="text-right">Acciones</th>
@@ -708,9 +829,25 @@ export function OrdersDashboard() {
                       </div>
                     </td>
                     <td>
-                      <span className="coffee-badge">{order.coffeeType}</span>
+                      <div className="order-items-list">
+                        {order.items && order.items.length > 0 ? (
+                          order.items.map((item, idx) => (
+                            <div key={item.id || idx} className="order-item-chip">
+                              <span className="order-item-qty">{item.quantity}x</span>
+                              <span className="order-item-name">{item.productName}</span>
+                              {item.notes && (
+                                <span className="order-item-note">({item.notes})</span>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <span className="order-notes">Sin productos</span>
+                        )}
+                      </div>
                     </td>
-                    <td className="text-center font-bold">{order.quantity}</td>
+                    <td className="text-right font-bold price-cell">
+                      ${Number(order.totalAmount || 0).toFixed(2)}
+                    </td>
                     <td>
                       <span className={`status-pill pill-${order.status}`}>
                         {order.status === 'pending' && '⏳ Pendiente'}
@@ -945,13 +1082,7 @@ export function OrdersDashboard() {
                       <button
                         type="button"
                         className="btn-action btn-reopen"
-                        onClick={() => {
-                          setCustomerName(customer.name)
-                          if (customer.favoriteDrink) {
-                            setCoffeeType(customer.favoriteDrink)
-                          }
-                          setShowOrderModal(true)
-                        }}
+                        onClick={() => openNewOrderModal(customer)}
                         title="Crear orden para este cliente"
                       >
                         ☕ Ordenar
@@ -973,12 +1104,12 @@ export function OrdersDashboard() {
         </div>
       )}
 
-      {/* ================= MODAL: NUEVA ORDEN ================= */}
+      {/* ================= MODAL: NUEVA ORDEN MULTI-PRODUCTO ================= */}
       {showOrderModal && (
         <div className="modal-overlay" onClick={() => setShowOrderModal(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card modal-card-wide" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>☕ Nueva Orden de Café</h2>
+              <h2>☕ Nueva Orden (Múltiples Productos)</h2>
               <button
                 type="button"
                 className="modal-close"
@@ -989,13 +1120,13 @@ export function OrdersDashboard() {
             </div>
             <form onSubmit={handleCreateOrder} className="modal-form">
               <div className="form-group">
-                <label htmlFor="customer-name">Nombre del Cliente *</label>
+                <label htmlFor="customer-name">Cliente *</label>
                 <input
                   id="customer-name"
                   type="text"
                   list="customers-datalist"
                   required
-                  placeholder="Ej. Juan Pérez"
+                  placeholder="Selecciona o escribe el nombre del cliente"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   autoFocus
@@ -1007,42 +1138,83 @@ export function OrdersDashboard() {
                 </datalist>
               </div>
 
-              <div className="form-row">
-                <div className="form-group flex-1">
-                  <label htmlFor="coffee-type">Producto / Café *</label>
-                  <select
-                    id="coffee-type"
-                    value={coffeeType}
-                    onChange={(e) => setCoffeeType(e.target.value)}
+              <div className="order-cart-section">
+                <div className="order-cart-header">
+                  <label>Productos de la Orden ({draftItems.length})</label>
+                  <button
+                    type="button"
+                    className="btn-add-item"
+                    onClick={handleAddDraftItem}
                   >
-                    {coffeeOptions.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                    + Agregar otro producto
+                  </button>
                 </div>
-                <div className="form-group w-24">
-                  <label htmlFor="quantity">Cantidad</label>
-                  <input
-                    id="quantity"
-                    type="number"
-                    min="1"
-                    max="20"
-                    value={quantity}
-                    onChange={(e) => setQuantity(Number(e.target.value))}
-                  />
+
+                <div className="order-cart-rows">
+                  {draftItems.map((item, index) => (
+                    <div key={index} className="order-cart-row">
+                      <div className="order-cart-row-main">
+                        <select
+                          className="flex-1"
+                          value={item.productName}
+                          onChange={(e) => handleDraftProductChange(index, e.target.value)}
+                        >
+                          {selectableCatalog.map((c) => (
+                            <option key={c.name} value={c.name}>
+                              {c.name} (${c.price})
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          className="w-20"
+                          min="1"
+                          max="25"
+                          value={item.quantity}
+                          onChange={(e) =>
+                            handleDraftQuantityChange(index, Number(e.target.value))
+                          }
+                          title="Cantidad"
+                        />
+                        <span className="cart-row-subtotal">
+                          ${((Number(item.unitPrice) || 0) * item.quantity).toFixed(2)}
+                        </span>
+                        {draftItems.length > 1 && (
+                          <button
+                            type="button"
+                            className="btn-remove-item"
+                            onClick={() => handleRemoveDraftItem(index)}
+                            title="Quitar este producto"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        className="cart-row-notes"
+                        placeholder="Nota para este producto (ej. Leche de avena, sin azúcar)..."
+                        value={item.notes}
+                        onChange={(e) => handleDraftNotesChange(index, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="order-cart-total">
+                  <span>Total de la Orden:</span>
+                  <strong>${draftTotalAmount.toFixed(2)}</strong>
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="notes">Notas / Personalización</label>
+                <label htmlFor="order-notes">Notas generales del pedido (opcional)</label>
                 <input
-                  id="notes"
+                  id="order-notes"
                   type="text"
-                  placeholder="Ej. Con leche de avena, sin azúcar, descafeinado"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Ej. Para llevar, entregar en mesa 4"
+                  value={orderNotes}
+                  onChange={(e) => setOrderNotes(e.target.value)}
                 />
               </div>
 
@@ -1057,9 +1229,11 @@ export function OrdersDashboard() {
                 <button
                   type="submit"
                   className="btn-primary"
-                  disabled={submitting || !customerName.trim()}
+                  disabled={submitting || !customerName.trim() || draftItems.length === 0}
                 >
-                  {submitting ? 'Guardando...' : 'Crear Orden'}
+                  {submitting
+                    ? 'Guardando...'
+                    : `Crear Orden ($${draftTotalAmount.toFixed(2)})`}
                 </button>
               </div>
             </form>
@@ -1226,9 +1400,9 @@ export function OrdersDashboard() {
                     value={custFavoriteDrink}
                     onChange={(e) => setCustFavoriteDrink(e.target.value)}
                   >
-                    {coffeeOptions.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                    {selectableCatalog.map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name}
                       </option>
                     ))}
                   </select>

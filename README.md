@@ -231,7 +231,8 @@ make dev-whatsapp-tunnel
 The project includes a robust, edge-ready data persistence layer:
 
 ### Schema Design (`web/src/db/schema.ts`)
-- **`coffee_orders`**: Stores order details (`id`, `customerName`, `coffeeType`, `quantity`, `status`, `notes`, `createdAt`, `updatedAt`).
+- **`coffee_orders`**: Stores order headers (`id`, `customerId`, `customerName`, `status`, `totalAmount`, `notes`, `createdAt`, `updatedAt`).
+- **`order_items`**: Stores multi-product line items per order (`id`, `orderId`, `productId`, `productName`, `quantity`, `unitPrice`, `notes`) with `ON DELETE CASCADE`.
 - **`products`**: Stores the coffee shop product catalog (`id`, `name`, `category`, `price`, `description`, `available`, `createdAt`, `updatedAt`).
 - **`customers`**: Stores registered customers and loyalty points (`id`, `name`, `email`, `phone`, `favoriteDrink`, `loyaltyPoints`, `createdAt`, `updatedAt`).
 

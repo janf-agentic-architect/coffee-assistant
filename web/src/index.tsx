@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
-import { eq, desc, asc } from 'drizzle-orm'
+import { eq, desc, asc, inArray } from 'drizzle-orm'
 import { renderer } from './renderer'
 import { Dashboard } from './components/Dashboard'
 import { getGcpAccessToken } from './gcp-auth'
-import { getDb, coffeeOrders, products, customers } from './db'
+import { getDb, coffeeOrders, orderItems, products, customers } from './db'
 
 type Bindings = {
   AGENT_RUNTIME_API_URL?: string
@@ -56,12 +56,32 @@ app.all('/api/adk/*', async (c) => {
   }
 })
 
-// Database endpoints using Drizzle ORM: Orders
+// Database endpoints using Drizzle ORM: Orders + Order Items
 app.get('/api/orders', async (c) => {
   try {
     const db = getDb(c.env?.DATABASE_URL)
-    const orders = await db.select().from(coffeeOrders).orderBy(desc(coffeeOrders.createdAt))
-    return c.json(orders)
+    const ordersList = await db.select().from(coffeeOrders).orderBy(desc(coffeeOrders.createdAt))
+    if (ordersList.length === 0) return c.json([])
+
+    const orderIds = ordersList.map((o) => o.id)
+    const itemsList = await db
+      .select()
+      .from(orderItems)
+      .where(inArray(orderItems.orderId, orderIds))
+
+    const itemsByOrder = new Map<string, typeof itemsList>()
+    for (const item of itemsList) {
+      const existing = itemsByOrder.get(item.orderId) || []
+      existing.push(item)
+      itemsByOrder.set(item.orderId, existing)
+    }
+
+    const enriched = ordersList.map((order) => ({
+      ...order,
+      items: itemsByOrder.get(order.id) || [],
+    }))
+
+    return c.json(enriched)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return c.json({ error: message }, 500)
@@ -72,14 +92,55 @@ app.post('/api/orders', async (c) => {
   try {
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    const [newOrder] = await db.insert(coffeeOrders).values({
-      customerName: body.customerName,
-      coffeeType: body.coffeeType,
-      quantity: body.quantity ?? 1,
-      notes: body.notes,
-      status: body.status ?? 'pending',
-    }).returning()
-    return c.json(newOrder, 201)
+
+    const rawItems: Array<{
+      productId?: string | null
+      productName: string
+      quantity?: number
+      unitPrice?: string | number
+      notes?: string | null
+    }> = Array.isArray(body.items) && body.items.length > 0
+      ? body.items
+      : body.coffeeType
+      ? [{ productName: body.coffeeType, quantity: body.quantity ?? 1, unitPrice: body.unitPrice ?? '0.00' }]
+      : []
+
+    if (rawItems.length === 0) {
+      return c.json({ error: 'Order must contain at least one product item' }, 400)
+    }
+
+    const computedTotal = rawItems.reduce((sum, item) => {
+      const qty = Math.max(1, Number(item.quantity) || 1)
+      const price = Number(item.unitPrice) || 0
+      return sum + qty * price
+    }, 0)
+
+    const [newOrder] = await db
+      .insert(coffeeOrders)
+      .values({
+        customerId: body.customerId || null,
+        customerName: body.customerName,
+        totalAmount: body.totalAmount !== undefined ? String(body.totalAmount) : computedTotal.toFixed(2),
+        notes: body.notes || null,
+        status: body.status ?? 'pending',
+      })
+      .returning()
+
+    const insertedItems = await db
+      .insert(orderItems)
+      .values(
+        rawItems.map((item) => ({
+          orderId: newOrder.id,
+          productId: item.productId || null,
+          productName: item.productName,
+          quantity: Math.max(1, Number(item.quantity) || 1),
+          unitPrice: String(Number(item.unitPrice || 0).toFixed(2)),
+          notes: item.notes || null,
+        }))
+      )
+      .returning()
+
+    return c.json({ ...newOrder, items: insertedItems }, 201)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return c.json({ error: message }, 400)
@@ -92,7 +153,8 @@ app.get('/api/orders/:id', async (c) => {
     const db = getDb(c.env?.DATABASE_URL)
     const [order] = await db.select().from(coffeeOrders).where(eq(coffeeOrders.id, id))
     if (!order) return c.json({ error: 'Order not found' }, 404)
-    return c.json(order)
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
+    return c.json({ ...order, items })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return c.json({ error: message }, 500)
@@ -108,15 +170,15 @@ app.patch('/api/orders/:id', async (c) => {
       .update(coffeeOrders)
       .set({
         ...(body.status ? { status: body.status } : {}),
-        ...(body.coffeeType ? { coffeeType: body.coffeeType } : {}),
-        ...(body.quantity !== undefined ? { quantity: body.quantity } : {}),
         ...(body.notes !== undefined ? { notes: body.notes } : {}),
+        ...(body.totalAmount !== undefined ? { totalAmount: String(body.totalAmount) } : {}),
         updatedAt: new Date(),
       })
       .where(eq(coffeeOrders.id, id))
       .returning()
     if (!updated) return c.json({ error: 'Order not found' }, 404)
-    return c.json(updated)
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
+    return c.json({ ...updated, items })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return c.json({ error: message }, 500)
