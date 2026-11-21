@@ -63,10 +63,10 @@ Este microservicio conecta **WhatsApp Cloud API (Meta)** con el asistente conver
 
 1. Cuenta de desarrollador en [Meta for Developers](https://developers.facebook.com/).
 2. Una aplicación de WhatsApp Cloud API configurada en Meta con:
-   - **Access Token** temporal o permanente (System User).
-   - **Phone Number ID**.
-   - Un **Verify Token** configurado a tu elección.
-3. El servidor de ADK corriendo (por defecto en `http://localhost:8000`).
+   - **Access Token** (`whatsapp_token`): temporal o permanente (System User).
+   - **App Secret** (`whatsapp_app_secret`): para validación de firma `X-Hub-Signature-256` y registro automático del Callback URL en Meta.
+   - *(Opcional)* **Phone Number ID**, **WABA ID** y **Verify Token**: se autodescubren y autogeneran automáticamente si se omiten.
+3. El servidor de ADK corriendo localmente (por defecto en `http://localhost:8080` mediante `make dev-agent-api`) o desplegado en Vertex AI Agent Runtime.
 
 ---
 
@@ -80,61 +80,55 @@ cd channels
 uv sync
 ```
 
-### 2. Configurar Variables de Entorno
-Copia el archivo de ejemplo a `.env` (puede estar en la raíz del proyecto o en `channels/.env`):
+### 2. Configurar Credenciales (vía `infra/vars/env.tfvars`)
+En lugar de gestionar múltiples secretos manualmente, agrega únicamente `whatsapp_token` y `whatsapp_app_secret` en `infra/vars/env.tfvars`:
 
-```bash
-cp channels/whatsapp/.env.example channels/whatsapp/.env
+```hcl
+whatsapp_token      = "EAAG..."
+whatsapp_app_secret = "tu_app_secret_de_meta"
 ```
 
-Edita `channels/whatsapp/.env`:
-```env
-WHATSAPP_TOKEN=EAAG...
-WHATSAPP_PHONE_NUMBER_ID=123456789012345
-WHATSAPP_VERIFY_TOKEN=mi_token_secreto_adk
-WHATSAPP_APP_SECRET=opcional_para_verificacion_sha256
-
-ADK_API_URL=http://localhost:8000
-ADK_APP_NAME=chat_assistant
-```
+- **En producción (`make infra` + `make deploy-whatsapp`)**:
+  - Terraform guarda automáticamente `whatsapp-token` y `whatsapp-app-secret` en **GCP Secret Manager**.
+  - Terraform genera automáticamente un `whatsapp-verify-token` aleatorio de 32 caracteres en **GCP Secret Manager**.
+  - El `Phone Number ID` y el `WABA ID` se **autodescubren automáticamente** desde Meta Graph API (`/debug_token` y `/{WABA_ID}/phone_numbers`) y desde los webhooks entrantes.
+  - Al terminar `make deploy-whatsapp`, se registra automáticamente la URL de Cloud Run y el `Verify Token` en tu App de Meta (`/{APP_ID}/subscriptions`) y se suscribe el WABA (`/{WABA_ID}/subscribed_apps`).
+- **En desarrollo local (`make dev-whatsapp`)**:
+  - `channels/whatsapp/config.py` lee automáticamente `whatsapp_token` y `whatsapp_app_secret` desde `infra/vars/env.tfvars` como fallback si no están definidos en `channels/whatsapp/.env`.
 
 ### 3. Iniciar los Servicios
 
-**Opción rápida con Make (inicia webhook + ngrok simultáneamente):**
+**Terminal 1: Iniciar el backend local de ADK (`http://localhost:8080`)**
+```bash
+make dev-agent-api
+```
+
+**Terminal 2: Iniciar el canal de WhatsApp + ngrok + auto-registro en Meta**
 ```bash
 make dev-whatsapp-tunnel
 ```
+> `make dev-whatsapp-tunnel` levanta el servidor FastAPI en el puerto `8001`, abre el túnel HTTPS con `ngrok`, detecta automáticamente la URL pública desde `http://127.0.0.1:4040/api/tunnels`, autodescubre el `App ID` y `WABA ID`, registra el Callback URL en la App de Meta y suscribe el WABA al evento `messages`.
 
-O por separado:
+También puedes ejecutar los pasos por separado:
 - `make dev-whatsapp`: Inicia el servidor webhook en el puerto 8001.
 - `make tunnel-whatsapp`: Expone el puerto 8001 con ngrok.
-
-**Terminal 1: Iniciar el backend de ADK**
-```bash
-# Desde la raíz del proyecto:
-uv run adk web . --host 127.0.0.1 --port 8080 --reload_agents
-```
-
-**Terminal 2: Iniciar el canal de WhatsApp**
-```bash
-make dev-whatsapp-tunnel
-```
+- `make subscribe-whatsapp-waba`: Autodescubre WABA, registra el webhook y suscribe los eventos.
 
 ---
 
-## 🌐 Configuración del Webhook en Meta
+## 🌐 Configuración del Webhook en Meta (Automática vs. Manual)
 
-Meta requiere una URL pública con HTTPS. Para desarrollo local, puedes usar **ngrok** o **cloudflared**:
+### Opción A: Automática (Recomendada)
+Con `whatsapp_token` y `whatsapp_app_secret` definidos en `infra/vars/env.tfvars`:
+- **En Cloud Run**: `make deploy-whatsapp` registra automáticamente la URL de Cloud Run y el `WHATSAPP_VERIFY_TOKEN` generado por Terraform en tu App de Meta (`/{APP_ID}/subscriptions`) y suscribe tu WABA (`/{WABA_ID}/subscribed_apps`).
+- **En Desarrollo Local**: `make dev-whatsapp-tunnel` detecta el túnel activo de `ngrok` (`--auto-ngrok`) y actualiza automáticamente el Callback URL en Meta.
 
-```bash
-ngrok http 8001
-```
-
-En el panel de **Meta for Developers**:
+### Opción B: Manual en el Panel de Meta
+Si prefieres configurar el webhook manualmente en el panel de **Meta for Developers**:
 1. Dirígete a **WhatsApp** > **Configuración** > **Webhook**.
 2. Haz clic en **Editar**.
-3. **URL de devolución de llamada**: `https://tu-dominio-ngrok.app/webhook` (también se admiten `/webhooks/whatsapp`, `/webhook/whatsapp` o `/whatsapp/webhook`).
-4. **Identificador de verificación (Verify Token)**: El mismo valor que pusiste en `WHATSAPP_VERIFY_TOKEN`.
+3. **URL de devolución de llamada**: `https://tu-dominio/webhooks/whatsapp` (también se admiten `/webhook`, `/webhook/whatsapp` o `/whatsapp/webhook`).
+4. **Identificador de verificación (Verify Token)**: El valor de `WHATSAPP_VERIFY_TOKEN` (por defecto en local `coffee_assistant_verify_token`, o en Cloud Run el output `terraform -chdir=infra output -raw whatsapp_verify_token`).
 5. Haz clic en **Verificar y guardar**.
 6. En los campos de suscripción de Webhook, activa **`messages`**.
 

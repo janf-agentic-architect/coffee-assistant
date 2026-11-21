@@ -16,9 +16,9 @@ Equipped with a modern web interface built with **React + @assistant-ui** deploy
 - **📋 Live Orders Dashboard**: Integrated order management UI in the web application with real-time order tracking, status badges, order notes, and full CRUD operations via Drizzle ORM.
 - **⚡ Neon Lakebase Postgres & Drizzle ORM**: Serverless PostgreSQL with dual connection URLs (pooled via PgBouncer for Cloudflare Workers edge runtime and direct for DDL schema migrations) provisioned via Terraform.
 - **🐳 Ephemeral Local Database**: Instant local PostgreSQL container via Docker (`make dev-db`) pre-configured with schema extensions (`pgcrypto`) and seed data.
-- **📱 WhatsApp Cloud API on Cloud Run**: Dedicated FastAPI microservice handling webhooks, Meta media downloads, Base64 formatting for ADK, and persistent per-phone sessions—ready for local dev (ngrok) or serverless deployment on **GCP Cloud Run**.
+- **📱 WhatsApp Cloud API on Cloud Run**: Dedicated FastAPI microservice handling webhooks, HMAC-SHA256 signature validation, Meta media downloads, Base64 formatting for ADK, persistent per-phone sessions, and zero-config Meta Graph API auto-discovery (`App ID`, `WABA ID`, `Phone Number ID`) with automatic webhook URL registration for both **Cloud Run** and local **ngrok** tunnels.
 - **🛡️ Distributed Rate Limiting**: Built-in `UpstashRateLimitPlugin` for ADK protecting agent endpoints from abuse.
-- **🔐 Automated Multi-Cloud IaC & Secret Sync**: Terraform provisions GCP resources, Neon Postgres, and Upstash Redis, automatically storing connection strings and credentials in **GCP Secret Manager**.
+- **🔐 Automated Multi-Cloud IaC & Secret Sync**: Terraform provisions GCP resources, Neon Postgres, and Upstash Redis, automatically storing connection strings, auto-generated webhook verify tokens, and credentials in **GCP Secret Manager**.
 - **☁️ Vertex AI Agent Runtime & Automated GCP Projects**: Terraform IaC to either deploy into an existing project or provision an entirely new GCP project from scratch with automatic billing association, API enablement, and metadata synchronization.
 
 ---
@@ -97,11 +97,13 @@ flowchart TD
 │   ├── tests/                   # WhatsApp channel unit and webhook tests
 │   └── whatsapp/                # WhatsApp Cloud API microservice
 │       ├── main.py              # FastAPI entrypoint (/health, /webhook, /webhooks/whatsapp)
-│       ├── router.py            # Webhook verification & incoming event handler
+│       ├── router.py            # Webhook verification, HMAC-SHA256 validation & event handler
 │       ├── service.py           # Background processor & ADK dispatcher
 │       ├── adk_client.py        # Client adapter for ADK API (supports ADC & IAM auth)
-│       ├── client.py            # Meta Graph API media & messaging client
-│       ├── subscribe_waba.py    # Utility to subscribe WABA to Meta App webhooks
+│       ├── client.py            # Meta Graph API media, messaging & account auto-discovery client
+│       ├── config.py            # Settings loader (.env + automatic fallback to infra/vars/env.tfvars)
+│       ├── subscribe_waba.py    # Auto-discovers App/WABA/Phone ID & registers Cloud Run/ngrok webhooks
+│       ├── .env.example         # Local environment override template
 │       └── README.md            # Detailed WhatsApp configuration guide
 ├── web/                         # Web Application, Orders Dashboard & Edge API Proxy
 │   ├── drizzle.config.ts        # Drizzle ORM configuration
@@ -119,6 +121,8 @@ flowchart TD
 │   └── package.json             # Node.js dependencies (pnpm)
 └── infra/                       # Infrastructure as Code (Terraform)
     ├── providers.tf             # Terraform providers (Google, Neon, Upstash, Time, Random)
+    ├── variables.tf             # Input variable declarations (GCP, Neon, Upstash, WhatsApp)
+    ├── outputs.tf               # Core Terraform outputs (Project ID, Agent URL, Neon DB URLs)
     ├── project.tf               # Conditional GCP project creation & suffix generator
     ├── apis.tf                  # Google Cloud APIs enablement (Vertex AI, Cloud Run, etc.)
     ├── iam.tf                   # Service Accounts, roles, and keys for Web Caller
@@ -211,17 +215,14 @@ Open your browser at `http://localhost:5173`. The web interface will automatical
 
 ### 4. Run the WhatsApp Channel (Optional)
 
-Configure your credentials in `channels/whatsapp/.env` (see [channels/whatsapp/README.md](channels/whatsapp/README.md)), then start the webhook service and an ngrok tunnel concurrently:
+Add `whatsapp_token` and `whatsapp_app_secret` to `infra/vars/env.tfvars` (automatically loaded as a fallback by `channels/whatsapp/config.py`, or override in `channels/whatsapp/.env`; see [channels/whatsapp/README.md](channels/whatsapp/README.md)). Then start the webhook service, launch ngrok, and auto-register the public ngrok URL with Meta in a single command:
 
 ```bash
 make dev-whatsapp-tunnel
 ```
-> Or run separately: `make dev-whatsapp` (port 8001) and `make tunnel-whatsapp`.
-
-To link your WhatsApp Business Account (WABA) to receive webhooks from Meta:
-```bash
-make subscribe-whatsapp-waba
-```
+> `make dev-whatsapp-tunnel` starts the FastAPI webhook on port `8001`, launches `ngrok`, detects the active HTTPS tunnel via `http://127.0.0.1:4040/api/tunnels`, auto-discovers your Meta `App ID` and `WABA ID`, registers the callback URL on your Meta App, and subscribes your WABA.
+>
+> You can also run each step separately: `make dev-whatsapp` (port 8001), `make tunnel-whatsapp`, and `make subscribe-whatsapp-waba`.
 
 ---
 
@@ -269,11 +270,13 @@ The web client features rich attachment handling:
 ### WhatsApp Cloud API Integration
 The `channels/whatsapp` microservice handles Meta webhooks asynchronously:
 - Verifies Meta webhook challenges (`GET /webhook` and `GET /webhooks/whatsapp`).
+- Validates payload authenticity via `X-Hub-Signature-256` (HMAC-SHA256) when `whatsapp_app_secret` is configured.
 - Acknowledges `POST` with `200 OK` instantly and processes payloads in background tasks.
+- **Zero-Config Account Auto-Discovery**: Automatically discovers `App ID`, `WABA ID`, and `Phone Number ID` from `whatsapp_token` via Meta Graph API (`/debug_token` and `/{WABA_ID}/phone_numbers`) as well as incoming webhook `metadata.phone_number_id`.
 - Downloads voice notes, audio files, images, and documents via Meta Graph API.
 - Converts raw media to Base64 `inline_data` Content objects for Google ADK.
 - Maps user phone numbers to persistent sessions (`wa_<phone_number>`).
-- Supports **both** local execution (with ngrok) and **serverless production deployment on Cloud Run**.
+- Supports **both** local execution (with automatic ngrok URL registration in Meta) and **serverless production deployment on Cloud Run**.
 - Handles authentication automatically:
   - Local dev: calls direct HTTP agent endpoints (`http://localhost:8080`).
   - Cloud Run: obtains Google Cloud Application Default Credentials (ADC) / IAM Bearer tokens to securely call Vertex AI Reasoning Engine.
@@ -285,7 +288,7 @@ For detailed webhook setup in Meta Developer Portal, see [channels/whatsapp/READ
 ## 🔐 Secrets & Rate Limiting
 
 ### Automated Multi-Cloud Provisioning via Terraform
-When you provide `neon_api_key` and `upstash_api_key` in `infra/vars/env.tfvars`, Terraform automatically:
+When you provide `neon_api_key`, `upstash_api_key`, `whatsapp_token`, and `whatsapp_app_secret` in `infra/vars/env.tfvars`, Terraform automatically:
 1. Provisions your **Neon Lakebase Postgres** project and database.
 2. Provisions your **Upstash Redis** global database.
 3. Automatically creates and stores the following secrets in **GCP Secret Manager**:
@@ -293,6 +296,10 @@ When you provide `neon_api_key` and `upstash_api_key` in `infra/vars/env.tfvars`
    - `database-url-direct`: Direct PostgreSQL URI for migrations.
    - `upstash-redis-url`: REST endpoint for Upstash Redis.
    - `upstash-redis-token`: Bearer authentication token for Upstash Redis.
+   - `whatsapp-token`: Meta WhatsApp Cloud API System User Access Token.
+   - `whatsapp-app-secret`: Meta App Secret for `X-Hub-Signature-256` verification and webhook auto-registration.
+   - `whatsapp-verify-token`: Auto-generated 32-character webhook verification token.
+   - `whatsapp-phone-number-id`: Configured Phone Number ID (or `"auto"` for automatic discovery via incoming webhooks / Meta Graph API).
 
 ### Local Secret Manager Sync
 Any custom configuration placed in `agents/coffee-assistant/.env` or `channels/whatsapp/.env` can be synced to GCP Secret Manager:
@@ -324,7 +331,7 @@ The project provides automated commands to provision infrastructure on GCP, Neon
 
 ### 1. Cloud Infrastructure Provisioning (`make infra`)
 
-Configure `infra/vars/env.tfvars` (copy from `infra/vars/env.tfvars.example`) with your GCP, Neon, and Upstash credentials:
+Configure `infra/vars/env.tfvars` (copy from `infra/vars/env.tfvars.example`) with your GCP, Neon, Upstash, and optional WhatsApp credentials:
 
 ```hcl
 project_name = "coffee-assistant"
@@ -337,6 +344,11 @@ neon_org_id  = "org-your-org-id"
 # Upstash Redis credentials
 upstash_email   = "your-email@example.com"
 upstash_api_key = "your-upstash-api-key"
+
+# Meta WhatsApp Cloud API credentials (optional - stored in GCP Secret Manager)
+# Phone Number ID, WABA ID, and Verify Token are auto-discovered / auto-generated when omitted.
+whatsapp_token      = "your-meta-system-user-access-token"
+whatsapp_app_secret = "your-meta-app-secret"
 ```
 
 Then run Terraform:
@@ -381,23 +393,17 @@ Or step-by-step:
 
 ### 3. WhatsApp Channel Deployment (Cloud Run)
 
-To deploy the WhatsApp webhook microservice to Google Cloud Run:
+With `whatsapp_token` and `whatsapp_app_secret` configured in `infra/vars/env.tfvars` (and applied via `make infra`), deploy and auto-register the WhatsApp webhook in one command:
 
 ```bash
-# 1. Sync WhatsApp secrets to GCP Secret Manager
-make sync-whatsapp-secrets
-
-# 2. Build and push container to Artifact Registry via Cloud Build
-make build-whatsapp
-
-# 3. Deploy to Cloud Run (or run all in one step)
 make deploy-whatsapp
-
-# 4. Subscribe your WABA to webhooks
-make subscribe-whatsapp-waba
 ```
 
-After deployment, copy the `whatsapp_webhook_url` output and configure it in your **Meta App Dashboard > WhatsApp > Configuration > Callback URL**.
+`make deploy-whatsapp` automatically:
+1. Builds and pushes the container image to Artifact Registry via Cloud Build.
+2. Deploys the Cloud Run service bound to the secrets in GCP Secret Manager.
+3. Auto-discovers your Meta `App ID`, `WABA ID`, and `Phone Number ID` from `whatsapp_token`.
+4. Automatically registers the Cloud Run Callback URL and auto-generated `WHATSAPP_VERIFY_TOKEN` on your Meta App (`/{APP_ID}/subscriptions`) and subscribes your WABA (`/{WABA_ID}/subscribed_apps`).
 
 ---
 
@@ -417,7 +423,7 @@ After deployment, copy the `whatsapp_webhook_url` output and configure it in you
 | `make db-neon-push` | Database | Push Drizzle schema directly to Neon using direct connection |
 | `make dev-whatsapp` | Local Dev | Start WhatsApp webhook server on port 8001 |
 | `make tunnel-whatsapp` | Local Dev | Open an ngrok tunnel to port 8001 |
-| `make dev-whatsapp-tunnel`| Local Dev | Concurrently start WhatsApp webhook & ngrok tunnel |
+| `make dev-whatsapp-tunnel`| Local Dev | Start WhatsApp webhook, expose via ngrok, and auto-register ngrok URL in Meta |
 | `make infra-init` | Infra | Initialize Terraform providers and backend |
 | `make infra-plan` | Infra | Preview infrastructure changes with Terraform |
 | `make infra` | Infra | Apply infrastructure (supports `CREATE_PROJECT=true PROJECT_NAME=...` or `PROJECT_ID=...`) |
@@ -425,8 +431,8 @@ After deployment, copy the `whatsapp_webhook_url` output and configure it in you
 | `make sync-secrets` | Secrets | Synchronize `agents/coffee-assistant/.env` to GCP Secret Manager |
 | `make sync-whatsapp-secrets` | Secrets | Synchronize `channels/whatsapp/.env` to GCP Secret Manager |
 | `make build-whatsapp` | Channels | Build & push WhatsApp container image to Artifact Registry |
-| `make deploy-whatsapp` | Channels | Build, sync secrets, and deploy WhatsApp webhook to Cloud Run |
-| `make subscribe-whatsapp-waba` | Channels | Link WhatsApp Business Account (WABA) to Meta App webhooks |
+| `make deploy-whatsapp` | Channels | Build, deploy WhatsApp webhook to Cloud Run, and auto-configure Meta webhook & WABA |
+| `make subscribe-whatsapp-waba` | Channels | Auto-discover Meta WABA, register Cloud Run Webhook URL, and subscribe WABA |
 | `make deploy-agent` | Deploy | Deploy agent to Vertex AI Agent Runtime with bound secrets |
 | `make deploy-status` | Deploy | Check deployment progress in Vertex AI Agent Runtime |
 | `make deploy-web` | Deploy | Build & deploy web app to Cloudflare Workers with secrets & DB URL |

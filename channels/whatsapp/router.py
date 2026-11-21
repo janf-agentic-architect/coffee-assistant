@@ -84,6 +84,15 @@ async def receive_webhook(
     for entry in payload.entry:
         for change in entry.changes:
             if change.field == "messages" and change.value.messages:
+                # Auto-capture phone_number_id from incoming webhook metadata if not explicitly pinned
+                incoming_phone_id = (
+                    change.value.metadata.phone_number_id
+                    if change.value.metadata and change.value.metadata.phone_number_id
+                    else None
+                )
+                if incoming_phone_id and not getattr(service.wa_client, "phone_number_id", ""):
+                    service.wa_client.phone_number_id = incoming_phone_id
+
                 for message in change.value.messages:
                     # Enqueue background processing so HTTP response returns immediately (<3s)
                     background_tasks.add_task(service.process_incoming_message, message)

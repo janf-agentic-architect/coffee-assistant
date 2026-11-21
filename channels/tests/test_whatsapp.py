@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 os.environ["WHATSAPP_TOKEN"] = "test_token"
 os.environ["WHATSAPP_PHONE_NUMBER_ID"] = "12345"
 os.environ["WHATSAPP_VERIFY_TOKEN"] = "secret_verify_token"
+os.environ["WHATSAPP_APP_SECRET"] = ""
+os.environ["WHATSAPP_BUSINESS_ACCOUNT_ID"] = ""
 os.environ["ADK_API_URL"] = "http://localhost:8000"
 os.environ["ADK_APP_NAME"] = "chat_assistant"
 
@@ -212,5 +214,56 @@ def test_adk_client_auth_headers_remote_with_mock(monkeypatch):
     adk = AdkAgentClient(base_url="https://us-east1-aiplatform.googleapis.com/reasoningEngines/v1/projects/123/locations/us-east1/reasoningEngines/456/api")
     headers = adk._get_auth_headers()
     assert headers.get("Authorization") == "Bearer test_gcp_bearer_token"
+
+
+@pytest.mark.anyio
+async def test_whatsapp_client_auto_discovers_phone_number_id(monkeypatch):
+    import httpx
+
+    class MockResponse:
+        def __init__(self, status_code: int, json_data: dict):
+            self.status_code = status_code
+            self._json = json_data
+
+        def json(self):
+            return self._json
+
+    async def mock_get(self, url, params=None, headers=None):
+        if url.endswith("/debug_token"):
+            return MockResponse(
+                200,
+                {
+                    "data": {
+                        "app_id": "99887766",
+                        "granular_scopes": [
+                            {
+                                "scope": "whatsapp_business_messaging",
+                                "target_ids": ["waba_112233"],
+                            }
+                        ],
+                    }
+                },
+            )
+        if url.endswith("/waba_112233/phone_numbers"):
+            return MockResponse(
+                200,
+                {
+                    "data": [
+                        {
+                            "id": "phone_id_445566",
+                            "display_phone_number": "+52 33 1234 5678",
+                        }
+                    ]
+                },
+            )
+        return MockResponse(404, {})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+
+    wa_client = WhatsAppCloudApiClient(token="test_token", phone_number_id="auto")
+    resolved_id = await wa_client.ensure_phone_number_id()
+    assert resolved_id == "phone_id_445566"
+    assert wa_client.phone_number_id == "phone_id_445566"
+
 
 

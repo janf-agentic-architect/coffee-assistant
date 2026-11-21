@@ -28,7 +28,13 @@ resource "google_artifact_registry_repository" "whatsapp" {
   depends_on    = [google_project_service.services]
 }
 
-# Secret Manager resources for WhatsApp Cloud API credentials
+# Auto-generated webhook verify token when not explicitly set in env.tfvars
+resource "random_password" "whatsapp_verify_token" {
+  length  = 32
+  special = false
+}
+
+# Secret Manager resources for WhatsApp Cloud API credentials (populated automatically from env.tfvars)
 resource "google_secret_manager_secret" "whatsapp_token" {
   secret_id = "whatsapp-token"
   project   = local.project_id
@@ -42,11 +48,7 @@ resource "google_secret_manager_secret" "whatsapp_token" {
 
 resource "google_secret_manager_secret_version" "whatsapp_token_initial" {
   secret      = google_secret_manager_secret.whatsapp_token.id
-  secret_data = "initial_placeholder"
-
-  lifecycle {
-    ignore_changes = [secret_data]
-  }
+  secret_data = coalesce(var.whatsapp_token, "initial_placeholder")
 }
 
 resource "google_secret_manager_secret" "whatsapp_phone_number_id" {
@@ -62,11 +64,7 @@ resource "google_secret_manager_secret" "whatsapp_phone_number_id" {
 
 resource "google_secret_manager_secret_version" "whatsapp_phone_number_id_initial" {
   secret      = google_secret_manager_secret.whatsapp_phone_number_id.id
-  secret_data = "initial_placeholder"
-
-  lifecycle {
-    ignore_changes = [secret_data]
-  }
+  secret_data = coalesce(var.whatsapp_phone_number_id, "auto")
 }
 
 resource "google_secret_manager_secret" "whatsapp_verify_token" {
@@ -82,11 +80,7 @@ resource "google_secret_manager_secret" "whatsapp_verify_token" {
 
 resource "google_secret_manager_secret_version" "whatsapp_verify_token_initial" {
   secret      = google_secret_manager_secret.whatsapp_verify_token.id
-  secret_data = "initial_placeholder"
-
-  lifecycle {
-    ignore_changes = [secret_data]
-  }
+  secret_data = coalesce(var.whatsapp_verify_token, random_password.whatsapp_verify_token.result)
 }
 
 resource "google_secret_manager_secret" "whatsapp_app_secret" {
@@ -102,11 +96,7 @@ resource "google_secret_manager_secret" "whatsapp_app_secret" {
 
 resource "google_secret_manager_secret_version" "whatsapp_app_secret_initial" {
   secret      = google_secret_manager_secret.whatsapp_app_secret.id
-  secret_data = "initial_placeholder"
-
-  lifecycle {
-    ignore_changes = [secret_data]
-  }
+  secret_data = coalesce(var.whatsapp_app_secret, "initial_placeholder")
 }
 
 # Dedicated Service Account for WhatsApp Cloud Run Webhook

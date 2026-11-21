@@ -39,7 +39,10 @@ class WhatsAppCloudApiClient:
         api_version: Optional[str] = None,
     ):
         self.token = token or settings.WHATSAPP_TOKEN
-        self.phone_number_id = phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+        raw_phone_id = (phone_number_id if phone_number_id is not None else settings.WHATSAPP_PHONE_NUMBER_ID) or ""
+        if raw_phone_id.strip().lower() in ("auto", "initial_placeholder"):
+            raw_phone_id = ""
+        self.phone_number_id = raw_phone_id.strip()
         raw_version = api_version or settings.formatted_api_version
         if not raw_version.startswith("v"):
             raw_version = f"v{raw_version}"
@@ -58,16 +61,81 @@ class WhatsAppCloudApiClient:
             "Content-Type": "application/json",
         }
 
+    async def discover_account_info(self, waba_id_hint: Optional[str] = None) -> dict[str, str]:
+        """Auto-discover Meta App ID, WABA ID, and Phone Number ID using only WHATSAPP_TOKEN."""
+        info: dict[str, str] = {
+            "app_id": "",
+            "waba_id": waba_id_hint or settings.WHATSAPP_BUSINESS_ACCOUNT_ID or "",
+            "phone_number_id": self.phone_number_id or "",
+            "display_phone_number": "",
+        }
+        if not self.token:
+            return info
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # 1. Inspect token via /debug_token to extract app_id and WABA target_ids from granular_scopes
+            try:
+                debug_resp = await client.get(
+                    f"{self.base_url}/debug_token",
+                    params={"input_token": self.token, "access_token": self.token},
+                )
+                if debug_resp.status_code == 200:
+                    data = debug_resp.json().get("data", {})
+                    if data.get("app_id"):
+                        info["app_id"] = str(data["app_id"])
+                    if not info["waba_id"]:
+                        for scope_entry in data.get("granular_scopes", []):
+                            if scope_entry.get("scope") in (
+                                "whatsapp_business_management",
+                                "whatsapp_business_messaging",
+                            ):
+                                target_ids = scope_entry.get("target_ids") or []
+                                if target_ids:
+                                    info["waba_id"] = str(target_ids[0])
+                                    break
+            except Exception as e:
+                logger.debug("Could not inspect debug_token for auto-discovery: %s", e)
+
+            # 2. If WABA ID is known, fetch its phone numbers to discover phone_number_id
+            if info["waba_id"] and not info["phone_number_id"]:
+                try:
+                    phones_resp = await client.get(
+                        f"{self.base_url}/{info['waba_id']}/phone_numbers",
+                        headers=self._get_headers(),
+                    )
+                    if phones_resp.status_code == 200:
+                        phones = phones_resp.json().get("data") or []
+                        if phones:
+                            info["phone_number_id"] = str(phones[0].get("id", ""))
+                            info["display_phone_number"] = str(phones[0].get("display_phone_number", ""))
+                except Exception as e:
+                    logger.debug("Could not fetch phone_numbers for WABA %s: %s", info["waba_id"], e)
+
+        return info
+
+    async def ensure_phone_number_id(self) -> str:
+        """Return configured phone_number_id or auto-discover and cache it from Meta Graph API."""
+        if self.phone_number_id and self.phone_number_id.lower() not in ("auto", "initial_placeholder"):
+            return self.phone_number_id
+
+        info = await self.discover_account_info()
+        if info.get("phone_number_id"):
+            self.phone_number_id = info["phone_number_id"]
+            logger.info("Auto-discovered WhatsApp Phone Number ID: %s", self.phone_number_id)
+            return self.phone_number_id
+        return ""
+
     async def send_text_message(self, to: str, text: str) -> dict[str, Any]:
         """Send a text message to a WhatsApp user."""
-        if not self.token or not self.phone_number_id:
+        phone_number_id = await self.ensure_phone_number_id()
+        if not self.token or not phone_number_id:
             logger.warning("WhatsApp token or phone_number_id not configured. Message not sent.")
             return {"warning": "WhatsApp credentials not configured"}
 
         clean_to = self.normalize_phone_number(to)
         logger.info("Sending WhatsApp text message to: %s (original: %s, API version: %s)", clean_to, to, self.api_version)
 
-        url = f"{self.base_url}/{self.phone_number_id}/messages"
+        url = f"{self.base_url}/{phone_number_id}/messages"
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
@@ -96,10 +164,11 @@ class WhatsAppCloudApiClient:
 
     async def mark_as_read(self, message_id: str) -> bool:
         """Mark an incoming WhatsApp message as read (blue ticks)."""
-        if not self.token or not self.phone_number_id:
+        phone_number_id = await self.ensure_phone_number_id()
+        if not self.token or not phone_number_id:
             return False
 
-        url = f"{self.base_url}/{self.phone_number_id}/messages"
+        url = f"{self.base_url}/{phone_number_id}/messages"
         payload = {
             "messaging_product": "whatsapp",
             "status": "read",

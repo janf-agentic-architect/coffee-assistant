@@ -31,3 +31,9 @@ output "whatsapp_service_account" {
   description = "Service account running WhatsApp Cloud Run"
   value       = google_service_account.whatsapp_channel_sa.email
 }
+
+output "whatsapp_verify_token" {
+  description = "Webhook Verify Token stored in GCP Secret Manager (auto-generated if not provided in env.tfvars)"
+  value       = coalesce(var.whatsapp_verify_token, random_password.whatsapp_verify_token.result)
+  sensitive   = true
+}

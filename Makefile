@@ -125,18 +125,22 @@ build-whatsapp: ## Build and push WhatsApp webhook container image to Artifact R
 	@echo "Building WhatsApp container image via Cloud Build..."
 	gcloud builds submit $(CHANNELS_DIR) --tag $(WHATSAPP_IMAGE_TAG) --project $(PROJECT_ID)
 
-deploy-whatsapp: sync-whatsapp-secrets build-whatsapp ## Build, sync secrets, and deploy WhatsApp webhook to Cloud Run
+deploy-whatsapp: build-whatsapp ## Build, deploy WhatsApp webhook to Cloud Run, and auto-configure Meta webhook & WABA
 	@echo "Deploying WhatsApp service to Cloud Run..."
 	gcloud run deploy $(WHATSAPP_SERVICE_NAME) \
 		--image $(WHATSAPP_IMAGE_TAG) \
 		--region $(REGION) \
 		--project $(PROJECT_ID)
 	@echo "✓ WhatsApp webhook successfully deployed to Cloud Run!"
-	@echo "Webhook Callback URL:"
-	@terraform -chdir=$(INFRA_DIR) output -raw whatsapp_webhook_url 2>/dev/null || gcloud run services describe $(WHATSAPP_SERVICE_NAME) --region $(REGION) --project $(PROJECT_ID) --format 'value(status.url)'/webhooks/whatsapp
+	@WEBHOOK_URL=$$(terraform -chdir=$(INFRA_DIR) output -raw whatsapp_webhook_url 2>/dev/null || echo "$$(gcloud run services describe $(WHATSAPP_SERVICE_NAME) --region $(REGION) --project $(PROJECT_ID) --format 'value(status.url)')/webhooks/whatsapp"); \
+	VERIFY_TOKEN=$$(terraform -chdir=$(INFRA_DIR) output -raw whatsapp_verify_token 2>/dev/null || echo ""); \
+	echo "Webhook Callback URL: $$WEBHOOK_URL"; \
+	cd $(CHANNELS_DIR) && uv run python -m whatsapp.subscribe_waba --webhook-url "$$WEBHOOK_URL" --verify-token "$$VERIFY_TOKEN"
 
-subscribe-whatsapp-waba: ## Link WhatsApp Business Account (WABA) to Meta App webhooks
-	@cd $(CHANNELS_DIR) && uv run python -m whatsapp.subscribe_waba
+subscribe-whatsapp-waba: ## Auto-discover Meta WABA, register Cloud Run Webhook URL, and subscribe WABA
+	@WEBHOOK_URL=$$(terraform -chdir=$(INFRA_DIR) output -raw whatsapp_webhook_url 2>/dev/null || echo ""); \
+	VERIFY_TOKEN=$$(terraform -chdir=$(INFRA_DIR) output -raw whatsapp_verify_token 2>/dev/null || echo ""); \
+	cd $(CHANNELS_DIR) && uv run python -m whatsapp.subscribe_waba --webhook-url "$$WEBHOOK_URL" --verify-token "$$VERIFY_TOKEN"
 
 deploy-status: ## Check the status of an ongoing deployment in Agent Runtime
 	cd $(AGENT_DIR) && agents-cli deploy --status
@@ -196,11 +200,13 @@ dev-whatsapp: ## Run WhatsApp webhook development server
 tunnel-whatsapp: ## Expose WhatsApp webhook port via ngrok
 	ngrok http $(WHATSAPP_PORT)
 
-dev-whatsapp-tunnel: ## Run WhatsApp webhook and expose via ngrok concurrently
+dev-whatsapp-tunnel: ## Run WhatsApp webhook, expose via ngrok, and auto-register ngrok URL in Meta
 	@echo "Starting WhatsApp webhook server and ngrok tunnel on port $(WHATSAPP_PORT)..."; \
 	(cd $(CHANNELS_DIR) && uv run uvicorn whatsapp.main:app --host 0.0.0.0 --port $(WHATSAPP_PORT) --reload) & \
 	SERVER_PID=$$!; \
-	trap 'kill $$SERVER_PID 2>/dev/null || true' INT TERM EXIT; \
+	(sleep 3 && cd $(CHANNELS_DIR) && uv run python -m whatsapp.subscribe_waba --auto-ngrok) & \
+	SUB_PID=$$!; \
+	trap 'kill $$SERVER_PID $$SUB_PID 2>/dev/null || true' INT TERM EXIT; \
 	sleep 1; \
 	ngrok http $(WHATSAPP_PORT)
 
