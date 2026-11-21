@@ -56,11 +56,17 @@ body {
 
 .assistant-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.85rem 1.25rem;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem 1rem;
   background-color: #f8fafc;
   border-bottom: 1px solid #e2e8f0;
+}
+
+.assistant-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .assistant-header-title {
@@ -73,6 +79,119 @@ body {
   font-size: 0.8rem;
   font-weight: 600;
   color: #16a34a;
+}
+
+.assistant-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.assistant-thread-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.assistant-session-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.assistant-session-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.session-select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #0f172a;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.4rem;
+}
+
+.assistant-session-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-new-session {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #ffffff;
+  background-color: #2563eb;
+  border: none;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s;
+}
+
+.btn-new-session:hover {
+  background-color: #1d4ed8;
+}
+
+.btn-delete-session {
+  padding: 0.25rem 0.45rem;
+  font-size: 0.75rem;
+  color: #dc2626;
+  background-color: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.assistant-session-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.session-id-pill {
+  font-size: 0.72rem;
+  color: #475569;
+  background-color: #e2e8f0;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.3rem;
+}
+
+.session-id-pill code {
+  font-family: monospace;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.session-isolation-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #0369a1;
+  background-color: #e0f2fe;
+  border: 1px solid #bae6fd;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
 }
 
 #assistant-ui-root,
@@ -1341,4 +1460,182 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ================= AUTH & GUEST SESSION STATUS BAR ================= */
+.auth-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.auth-bar-guest {
+  background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%);
+  border-bottom-color: #fde68a;
+}
+
+.auth-bar-user {
+  background: linear-gradient(90deg, #f0fdf4 0%, #dcfce7 100%);
+  border-bottom-color: #bbf7d0;
+}
+
+.auth-status-info {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.auth-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.badge-guest {
+  background-color: #f59e0b;
+  color: #ffffff;
+}
+
+.badge-authenticated {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+
+.auth-status-text {
+  font-size: 0.78rem;
+  color: #334155;
+}
+
+.auth-status-text code {
+  background-color: rgba(255, 255, 255, 0.7);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  font-weight: 700;
+}
+
+.auth-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.btn-auth-reset {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #92400e;
+  background-color: #ffffff;
+  border: 1px solid #fcd34d;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.btn-auth-reset:hover {
+  background-color: #fef3c7;
+}
+
+.btn-auth-login {
+  padding: 0.32rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #1e293b;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.btn-auth-login:hover {
+  background-color: #f8fafc;
+}
+
+.btn-auth-register {
+  padding: 0.32rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #ffffff;
+  background-color: #0284c7;
+  border: none;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.btn-auth-register:hover {
+  background-color: #0369a1;
+}
+
+.btn-auth-logout {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #475569;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.btn-auth-logout:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+/* ================= AUTH MODAL ================= */
+.auth-modal-card {
+  max-width: 440px;
+}
+
+.auth-tabs {
+  display: flex;
+  border-bottom: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.auth-tab-btn {
+  flex: 1;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #64748b;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-tab-btn.active {
+  color: #0284c7;
+  border-bottom-color: #0284c7;
+  background-color: #ffffff;
+}
+
+.auth-info-box {
+  padding: 0.65rem 0.85rem;
+  background-color: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 0.45rem;
+  font-size: 0.8rem;
+  color: #0369a1;
+  line-height: 1.4;
+}
+
+.auth-error-alert {
+  padding: 0.6rem 0.8rem;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #dc2626;
+}
+
 

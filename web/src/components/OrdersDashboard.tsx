@@ -1,5 +1,8 @@
 /** @jsxImportSource react */
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { authStore, useAuth } from '../auth/auth-store'
+import { guestStorage } from '../auth/guest-storage'
+import { AuthModal } from './AuthModal'
 
 export interface OrderItem {
   id?: string
@@ -75,6 +78,7 @@ const PRODUCT_CATEGORIES = [
 ]
 
 export function OrdersDashboard() {
+  const auth = useAuth()
   const [activeSection, setActiveSection] = useState<DashboardSection>('orders')
 
   // Data state
@@ -117,14 +121,34 @@ export function OrdersDashboard() {
   const [custFavoriteDrink, setCustFavoriteDrink] = useState('Espresso')
   const [custPoints, setCustPoints] = useState(0)
 
+  const getAuthHeaders = useCallback((): Record<string, string> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (auth.idToken) {
+      headers['Authorization'] = `Bearer ${auth.idToken}`
+    }
+    return headers
+  }, [auth.idToken])
+
   const fetchAllData = useCallback(async () => {
+    if (auth.isGuest) {
+      setLoading(true)
+      setError(null)
+      const guestData = guestStorage.getAll()
+      setOrders(guestData.orders)
+      setProductsList(guestData.products)
+      setCustomersList(guestData.customers)
+      setLoading(false)
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)
+      const headers = getAuthHeaders()
       const [ordersRes, productsRes, customersRes] = await Promise.all([
-        fetch('/api/orders'),
-        fetch('/api/products'),
-        fetch('/api/customers'),
+        fetch('/api/orders', { headers }),
+        fetch('/api/products', { headers }),
+        fetch('/api/customers', { headers }),
       ])
 
       if (!ordersRes.ok) {
@@ -159,11 +183,19 @@ export function OrdersDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [auth.isGuest, getAuthHeaders])
 
   useEffect(() => {
     fetchAllData()
   }, [fetchAllData])
+
+  const handleResetGuestData = () => {
+    if (!confirm('¿Restaurar los datos de demostración de tu sesión de invitado?')) return
+    const fresh = guestStorage.resetDemoData()
+    setOrders(fresh.orders)
+    setProductsList(fresh.products)
+    setCustomersList(fresh.customers)
+  }
 
   // Catalog of selectable products with price & id
   const selectableCatalog = useMemo(() => {
@@ -252,10 +284,20 @@ export function OrdersDashboard() {
 
   // ================= ORDERS ACTIONS =================
   const handleUpdateOrderStatus = async (id: string, newStatus: string) => {
+    if (auth.isGuest) {
+      try {
+        const updated = guestStorage.updateOrderStatus(id, newStatus)
+        setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)))
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Error al actualizar orden')
+      }
+      return
+    }
+
     try {
       const res = await fetch(`/api/orders/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ status: newStatus }),
       })
       if (!res.ok) {
@@ -271,8 +313,17 @@ export function OrdersDashboard() {
 
   const handleDeleteOrder = async (id: string) => {
     if (!confirm('¿Estás seguro de eliminar esta orden?')) return
+    if (auth.isGuest) {
+      guestStorage.deleteOrder(id)
+      setOrders((prev) => prev.filter((o) => o.id !== id))
+      return
+    }
+
     try {
-      const res = await fetch(`/api/orders/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/orders/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Error ${res.status} al eliminar la orden`)
@@ -291,25 +342,36 @@ export function OrdersDashboard() {
       (c) => c.name.toLowerCase() === customerName.trim().toLowerCase()
     )
 
+    const orderPayload = {
+      customerId: matchedCustomer?.id || null,
+      customerName: customerName.trim(),
+      totalAmount: draftTotalAmount.toFixed(2),
+      notes: orderNotes.trim() || undefined,
+      status: 'pending',
+      items: draftItems.map((item) => ({
+        productId: item.productId || null,
+        productName: item.productName,
+        quantity: Number(item.quantity) || 1,
+        unitPrice: item.unitPrice,
+        notes: item.notes.trim() || null,
+      })),
+    }
+
+    if (auth.isGuest) {
+      const created = guestStorage.createOrder(orderPayload)
+      setOrders((prev) => [created, ...prev])
+      setShowOrderModal(false)
+      setCustomerName('')
+      setOrderNotes('')
+      return
+    }
+
     try {
       setSubmitting(true)
       const res = await fetch('/api/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: matchedCustomer?.id || null,
-          customerName: customerName.trim(),
-          totalAmount: draftTotalAmount.toFixed(2),
-          notes: orderNotes.trim() || undefined,
-          status: 'pending',
-          items: draftItems.map((item) => ({
-            productId: item.productId || null,
-            productName: item.productName,
-            quantity: Number(item.quantity) || 1,
-            unitPrice: item.unitPrice,
-            notes: item.notes.trim() || null,
-          })),
-        }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(orderPayload),
       })
 
       if (!res.ok) {
@@ -330,10 +392,16 @@ export function OrdersDashboard() {
 
   // ================= PRODUCTS ACTIONS =================
   const handleToggleProductAvailability = async (product: Product) => {
+    if (auth.isGuest) {
+      const updated = guestStorage.updateProductAvailability(product.id, !product.available)
+      setProductsList((prev) => prev.map((p) => (p.id === product.id ? updated : p)))
+      return
+    }
+
     try {
       const res = await fetch(`/api/products/${product.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ available: !product.available }),
       })
       if (!res.ok) {
@@ -349,8 +417,17 @@ export function OrdersDashboard() {
 
   const handleDeleteProduct = async (id: string) => {
     if (!confirm('¿Estás seguro de eliminar este producto del menú?')) return
+    if (auth.isGuest) {
+      guestStorage.deleteProduct(id)
+      setProductsList((prev) => prev.filter((p) => p.id !== id))
+      return
+    }
+
     try {
-      const res = await fetch(`/api/products/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/products/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Error ${res.status} al eliminar producto`)
@@ -365,18 +442,31 @@ export function OrdersDashboard() {
     e.preventDefault()
     if (!prodName.trim()) return
 
+    const productPayload = {
+      name: prodName.trim(),
+      category: prodCategory,
+      price: Number(prodPrice).toFixed(2),
+      description: prodDescription.trim() || undefined,
+      available: prodAvailable,
+    }
+
+    if (auth.isGuest) {
+      const created = guestStorage.createProduct(productPayload)
+      setProductsList((prev) => [...prev, created])
+      setShowProductModal(false)
+      setProdName('')
+      setProdDescription('')
+      setProdPrice('4.00')
+      setProdAvailable(true)
+      return
+    }
+
     try {
       setSubmitting(true)
       const res = await fetch('/api/products', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: prodName.trim(),
-          category: prodCategory,
-          price: Number(prodPrice).toFixed(2),
-          description: prodDescription.trim() || undefined,
-          available: prodAvailable,
-        }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(productPayload),
       })
 
       if (!res.ok) {
@@ -400,10 +490,16 @@ export function OrdersDashboard() {
   // ================= CUSTOMERS ACTIONS =================
   const handleAddCustomerPoints = async (customer: Customer, delta: number) => {
     const nextPoints = Math.max(0, (customer.loyaltyPoints || 0) + delta)
+    if (auth.isGuest) {
+      const updated = guestStorage.updateCustomerPoints(customer.id, nextPoints)
+      setCustomersList((prev) => prev.map((c) => (c.id === customer.id ? updated : c)))
+      return
+    }
+
     try {
       const res = await fetch(`/api/customers/${customer.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ loyaltyPoints: nextPoints }),
       })
       if (!res.ok) {
@@ -419,8 +515,17 @@ export function OrdersDashboard() {
 
   const handleDeleteCustomer = async (id: string) => {
     if (!confirm('¿Estás seguro de eliminar este cliente?')) return
+    if (auth.isGuest) {
+      guestStorage.deleteCustomer(id)
+      setCustomersList((prev) => prev.filter((c) => c.id !== id))
+      return
+    }
+
     try {
-      const res = await fetch(`/api/customers/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/customers/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Error ${res.status} al eliminar cliente`)
@@ -435,18 +540,31 @@ export function OrdersDashboard() {
     e.preventDefault()
     if (!custName.trim()) return
 
+    const customerPayload = {
+      name: custName.trim(),
+      email: custEmail.trim() || undefined,
+      phone: custPhone.trim() || undefined,
+      favoriteDrink: custFavoriteDrink.trim() || undefined,
+      loyaltyPoints: Number(custPoints) || 0,
+    }
+
+    if (auth.isGuest) {
+      const created = guestStorage.createCustomer(customerPayload)
+      setCustomersList((prev) => [created, ...prev])
+      setShowCustomerModal(false)
+      setCustName('')
+      setCustEmail('')
+      setCustPhone('')
+      setCustPoints(0)
+      return
+    }
+
     try {
       setSubmitting(true)
       const res = await fetch('/api/customers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: custName.trim(),
-          email: custEmail.trim() || undefined,
-          phone: custPhone.trim() || undefined,
-          favoriteDrink: custFavoriteDrink.trim() || undefined,
-          loyaltyPoints: Number(custPoints) || 0,
-        }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(customerPayload),
       })
 
       if (!res.ok) {
@@ -557,6 +675,70 @@ export function OrdersDashboard() {
 
   return (
     <div className="orders-dashboard">
+      {/* Auth & Guest Session Top Bar */}
+      <div className={`auth-status-bar ${auth.isGuest ? 'auth-bar-guest' : 'auth-bar-user'}`}>
+        <div className="auth-status-info">
+          {auth.isGuest ? (
+            <>
+              <span className="auth-badge badge-guest">👤 Modo Invitado</span>
+              <span className="auth-status-text">
+                Tus cambios se guardan en <code>sessionStorage</code> del navegador (ID:{' '}
+                <code>{auth.guestId}</code>)
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="auth-badge badge-authenticated">
+                🔐 {auth.user?.displayName} ({auth.user?.email})
+              </span>
+              <span className="auth-status-text">
+                Conectado a <strong>PostgreSQL / Neon</strong> · Proveedor:{' '}
+                <code>{auth.user?.provider}</code>
+              </span>
+            </>
+          )}
+        </div>
+
+        <div className="auth-status-actions">
+          {auth.isGuest ? (
+            <>
+              <button
+                type="button"
+                className="btn-auth-reset"
+                onClick={handleResetGuestData}
+                title="Restaurar datos demo en sessionStorage"
+              >
+                🔄 Reset Demo
+              </button>
+              <button
+                type="button"
+                className="btn-auth-login"
+                onClick={() => authStore.openAuthModal('login')}
+              >
+                🔐 Iniciar Sesión
+              </button>
+              <button
+                type="button"
+                className="btn-auth-register"
+                onClick={() => authStore.openAuthModal('register')}
+              >
+                ✨ Crear Cuenta
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn-auth-logout"
+                onClick={() => authStore.logoutToGuest()}
+              >
+                Salir a Modo Invitado
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Header */}
       <div className="orders-header">
         <div>
@@ -564,7 +746,9 @@ export function OrdersDashboard() {
             <span className="coffee-icon">☕</span> Coffee Shop Dashboard
           </h1>
           <p className="orders-subtitle">
-            Órdenes Multi-Producto, Catálogo y Clientes con PostgreSQL & Drizzle ORM
+            {auth.isGuest
+              ? 'Modo Invitado Activo — Datos efímeros en la sesión de tu navegador (sessionStorage)'
+              : 'Órdenes Multi-Producto, Catálogo y Clientes con PostgreSQL & Drizzle ORM'}
           </p>
         </div>
         <div className="orders-header-actions">
@@ -1439,6 +1623,9 @@ export function OrdersDashboard() {
           </div>
         </div>
       )}
+
+      {/* ================= MODAL: AUTENTICACIÓN GCP IDENTITY PLATFORM ================= */}
+      <AuthModal />
     </div>
   )
 }

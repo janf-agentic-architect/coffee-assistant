@@ -31,6 +31,8 @@ locals {
     "cloudtrace.googleapis.com",
     "telemetry.googleapis.com",
     "secretmanager.googleapis.com",
+    "identitytoolkit.googleapis.com",
+    "apikeys.googleapis.com",
   ]
 }
 

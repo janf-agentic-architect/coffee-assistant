@@ -1,0 +1,310 @@
+/** @jsxImportSource react */
+import { useSyncExternalStore } from 'react'
+
+export interface UserProfile {
+  uid: string
+  email: string
+  displayName: string
+  provider: 'gcp-identity-platform' | 'local-dev'
+}
+
+export interface WebTestSession {
+  id: string
+  label: string
+  adkUserId: string
+  createdAt: string
+}
+
+export interface AuthState {
+  isGuest: boolean
+  guestId: string
+  user: UserProfile | null
+  idToken: string | null
+  sessions: WebTestSession[]
+  activeSessionId: string
+  activeAdkUserId: string
+  showAuthModal: boolean
+  authModalTab: 'login' | 'register'
+}
+
+const GUEST_ID_STORAGE_KEY = 'coffee_guest_id_v1'
+const AUTH_SESSION_STORAGE_KEY = 'coffee_auth_session_v1'
+const WEB_SESSIONS_PREFIX = 'coffee_web_sessions_v1_'
+
+function generateShortId(): string {
+  const bytes = new Uint8Array(4)
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < 4; i++) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+function getOrCreateGuestId(): string {
+  if (typeof window === 'undefined') return 'guest_server'
+  let id = window.sessionStorage.getItem(GUEST_ID_STORAGE_KEY)
+  if (!id) {
+    id = `guest_${generateShortId()}`
+    window.sessionStorage.setItem(GUEST_ID_STORAGE_KEY, id)
+  }
+  return id
+}
+
+function buildAdkUserId(ownerKey: string, sessionId: string, isGuest: boolean): string {
+  // Always prefixed with guest_ or web_ so web playground sessions stay 100% separate from wa_<phone> WhatsApp sessions
+  const cleanOwner = ownerKey.replace(/[^a-zA-Z0-9_-]/g, '')
+  const prefix = isGuest ? 'guest' : 'web'
+  return `${prefix}_${cleanOwner}_${sessionId}`
+}
+
+function loadOrInitSessions(ownerKey: string, isGuest: boolean): {
+  sessions: WebTestSession[]
+  activeSessionId: string
+} {
+  if (typeof window === 'undefined') {
+    const defaultSession: WebTestSession = {
+      id: 's1',
+      label: 'Sesión Web #1',
+      adkUserId: buildAdkUserId(ownerKey, 's1', isGuest),
+      createdAt: new Date().toISOString(),
+    }
+    return { sessions: [defaultSession], activeSessionId: defaultSession.id }
+  }
+
+  const storageKey = `${WEB_SESSIONS_PREFIX}${ownerKey}`
+  const storage = isGuest ? window.sessionStorage : window.localStorage
+  try {
+    const raw = storage.getItem(storageKey)
+    if (raw) {
+      const parsed = JSON.parse(raw) as {
+        sessions: WebTestSession[]
+        activeSessionId: string
+      }
+      if (Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
+        const active =
+          parsed.sessions.find((s) => s.id === parsed.activeSessionId) || parsed.sessions[0]
+        return {
+          sessions: parsed.sessions,
+          activeSessionId: active.id,
+        }
+      }
+    }
+  } catch {
+    // Fallback to default session
+  }
+
+  const sId = `s_${generateShortId()}`
+  const initialSession: WebTestSession = {
+    id: sId,
+    label: 'Sesión Web #1',
+    adkUserId: buildAdkUserId(ownerKey, sId, isGuest),
+    createdAt: new Date().toISOString(),
+  }
+  const result = { sessions: [initialSession], activeSessionId: initialSession.id }
+  try {
+    storage.setItem(storageKey, JSON.stringify(result))
+  } catch {
+    // Ignore storage quota errors
+  }
+  return result
+}
+
+function saveSessionsToStorage(
+  ownerKey: string,
+  isGuest: boolean,
+  sessions: WebTestSession[],
+  activeSessionId: string
+) {
+  if (typeof window === 'undefined') return
+  const storageKey = `${WEB_SESSIONS_PREFIX}${ownerKey}`
+  const storage = isGuest ? window.sessionStorage : window.localStorage
+  try {
+    storage.setItem(storageKey, JSON.stringify({ sessions, activeSessionId }))
+  } catch {
+    // Ignore quota errors
+  }
+}
+
+function loadInitialState(): AuthState {
+  const guestId = getOrCreateGuestId()
+
+  if (typeof window !== 'undefined') {
+    try {
+      const savedAuth = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY)
+      if (savedAuth) {
+        const parsed = JSON.parse(savedAuth) as { user: UserProfile; idToken: string }
+        if (parsed?.user?.uid && parsed?.idToken) {
+          const { sessions, activeSessionId } = loadOrInitSessions(parsed.user.uid, false)
+          const activeSession =
+            sessions.find((s) => s.id === activeSessionId) || sessions[0]
+          return {
+            isGuest: false,
+            guestId,
+            user: parsed.user,
+            idToken: parsed.idToken,
+            sessions,
+            activeSessionId: activeSession.id,
+            activeAdkUserId: activeSession.adkUserId,
+            showAuthModal: false,
+            authModalTab: 'login',
+          }
+        }
+      }
+    } catch {
+      // Fallback to guest
+    }
+  }
+
+  const { sessions, activeSessionId } = loadOrInitSessions(guestId, true)
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0]
+
+  return {
+    isGuest: true,
+    guestId,
+    user: null,
+    idToken: null,
+    sessions,
+    activeSessionId: activeSession.id,
+    activeAdkUserId: activeSession.adkUserId,
+    showAuthModal: false,
+    authModalTab: 'login',
+  }
+}
+
+let state: AuthState = loadInitialState()
+const listeners = new Set<() => void>()
+
+function emitChange() {
+  for (const listener of listeners) {
+    listener()
+  }
+}
+
+export const authStore = {
+  getState(): AuthState {
+    return state
+  },
+
+  subscribe(listener: () => void): () => void {
+    listeners.add(listener)
+    return () => listeners.delete(listener)
+  },
+
+  openAuthModal(tab: 'login' | 'register' = 'login') {
+    state = { ...state, showAuthModal: true, authModalTab: tab }
+    emitChange()
+  },
+
+  closeAuthModal() {
+    state = { ...state, showAuthModal: false }
+    emitChange()
+  },
+
+  setAuthenticated(user: UserProfile, idToken: string) {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(
+        AUTH_SESSION_STORAGE_KEY,
+        JSON.stringify({ user, idToken })
+      )
+    }
+    const { sessions, activeSessionId } = loadOrInitSessions(user.uid, false)
+    const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0]
+
+    state = {
+      ...state,
+      isGuest: false,
+      user,
+      idToken,
+      sessions,
+      activeSessionId: activeSession.id,
+      activeAdkUserId: activeSession.adkUserId,
+      showAuthModal: false,
+    }
+    emitChange()
+  },
+
+  logoutToGuest() {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
+    }
+    const guestId = getOrCreateGuestId()
+    const { sessions, activeSessionId } = loadOrInitSessions(guestId, true)
+    const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0]
+
+    state = {
+      ...state,
+      isGuest: true,
+      guestId,
+      user: null,
+      idToken: null,
+      sessions,
+      activeSessionId: activeSession.id,
+      activeAdkUserId: activeSession.adkUserId,
+      showAuthModal: false,
+    }
+    emitChange()
+  },
+
+  createNewWebSession(customLabel?: string) {
+    const ownerKey = state.isGuest ? state.guestId : state.user!.uid
+    const sId = `s_${generateShortId()}`
+    const nextNumber = state.sessions.length + 1
+    const newSession: WebTestSession = {
+      id: sId,
+      label: customLabel?.trim() || `Sesión Web #${nextNumber}`,
+      adkUserId: buildAdkUserId(ownerKey, sId, state.isGuest),
+      createdAt: new Date().toISOString(),
+    }
+    const nextSessions = [...state.sessions, newSession]
+    saveSessionsToStorage(ownerKey, state.isGuest, nextSessions, newSession.id)
+
+    state = {
+      ...state,
+      sessions: nextSessions,
+      activeSessionId: newSession.id,
+      activeAdkUserId: newSession.adkUserId,
+    }
+    emitChange()
+  },
+
+  selectWebSession(sessionId: string) {
+    const found = state.sessions.find((s) => s.id === sessionId)
+    if (!found) return
+    const ownerKey = state.isGuest ? state.guestId : state.user!.uid
+    saveSessionsToStorage(ownerKey, state.isGuest, state.sessions, found.id)
+
+    state = {
+      ...state,
+      activeSessionId: found.id,
+      activeAdkUserId: found.adkUserId,
+    }
+    emitChange()
+  },
+
+  deleteWebSession(sessionId: string) {
+    if (state.sessions.length <= 1) return
+    const ownerKey = state.isGuest ? state.guestId : state.user!.uid
+    const nextSessions = state.sessions.filter((s) => s.id !== sessionId)
+    const nextActive =
+      state.activeSessionId === sessionId
+        ? nextSessions[nextSessions.length - 1]
+        : nextSessions.find((s) => s.id === state.activeSessionId) || nextSessions[0]
+
+    saveSessionsToStorage(ownerKey, state.isGuest, nextSessions, nextActive.id)
+
+    state = {
+      ...state,
+      sessions: nextSessions,
+      activeSessionId: nextActive.id,
+      activeAdkUserId: nextActive.adkUserId,
+    }
+    emitChange()
+  },
+}
+
+export function useAuth(): AuthState {
+  return useSyncExternalStore(authStore.subscribe, authStore.getState, authStore.getState)
+}

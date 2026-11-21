@@ -115,6 +115,12 @@ deploy-web: ## Install dependencies if missing, deploy web/, and configure GCP s
 		printf "%s" "$$DB_URL" | (cd $(WEB_DIR) && npx wrangler secret put DATABASE_URL); \
 		echo "✓ DATABASE_URL configured in Cloudflare Workers"; \
 	fi
+	@IDENTITY_KEY=$$(terraform -chdir=$(INFRA_DIR) output -raw gcp_identity_api_key 2>/dev/null || echo ""); \
+	if [ -n "$$IDENTITY_KEY" ]; then \
+		printf "%s" "$$IDENTITY_KEY" | (cd $(WEB_DIR) && npx wrangler secret put GCP_IDENTITY_API_KEY); \
+		printf "%s" "$(PROJECT_ID)" | (cd $(WEB_DIR) && npx wrangler secret put GCP_PROJECT_ID); \
+		echo "✓ GCP_IDENTITY_API_KEY and GCP_PROJECT_ID configured in Cloudflare Workers"; \
+	fi
 
 WHATSAPP_SECRETS_FILE := $(CHANNELS_DIR)/.secrets_args
 

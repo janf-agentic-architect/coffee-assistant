@@ -51,6 +51,18 @@ provider "upstash" {
   api_key = var.upstash_api_key
 }
 
+provider "google" {
+  region                = var.region
+  user_project_override = true
+  billing_project       = local.project_id
+}
+
+provider "google-beta" {
+  region                = var.region
+  user_project_override = true
+  billing_project       = local.project_id
+}
+
 # Enables local.bootstrap_services only. user_project_override is deliberately
 # unset so the call is billed to the caller, not to the target project.
 provider "google" {

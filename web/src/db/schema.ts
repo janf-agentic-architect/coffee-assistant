@@ -2,6 +2,7 @@ import { pgTable, text, timestamp, uuid, integer, numeric, boolean } from 'drizz
 
 export const products = pgTable('products', {
   id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('user_id'),
   name: text('name').notNull(),
   category: text('category').notNull().default('Café Caliente'),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
@@ -13,6 +14,7 @@ export const products = pgTable('products', {
 
 export const customers = pgTable('customers', {
   id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('user_id'),
   name: text('name').notNull(),
   email: text('email'),
   phone: text('phone'),
@@ -24,6 +26,7 @@ export const customers = pgTable('customers', {
 
 export const coffeeOrders = pgTable('coffee_orders', {
   id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('user_id'),
   customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
   customerName: text('customer_name').notNull(),
   status: text('status').notNull().default('pending'),

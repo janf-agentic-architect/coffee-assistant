@@ -1,17 +1,117 @@
-import { Hono } from 'hono'
-import { eq, desc, asc, inArray } from 'drizzle-orm'
+import { Hono, type Context } from 'hono'
+import { eq, and, desc, asc, inArray } from 'drizzle-orm'
 import { renderer } from './renderer'
 import { Dashboard } from './components/Dashboard'
 import { getGcpAccessToken } from './gcp-auth'
-import { getDb, coffeeOrders, orderItems, products, customers } from './db'
+import {
+  registerWithEmailPassword,
+  signInWithEmailPassword,
+  verifyIdentityToken,
+  type AuthUserProfile,
+} from './gcp-identity'
+import {
+  getDb,
+  ensureMultiTenantSchema,
+  coffeeOrders,
+  orderItems,
+  products,
+  customers,
+} from './db'
 
 type Bindings = {
   AGENT_RUNTIME_API_URL?: string
   GCP_SA_KEY_JSON?: string
   DATABASE_URL?: string
+  GCP_IDENTITY_API_KEY?: string
+  GCP_PROJECT_ID?: string
+  AUTH_LOCAL_SECRET?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
+
+async function getAuthenticatedUser(
+  c: Context<{ Bindings: Bindings }>
+): Promise<AuthUserProfile | null> {
+  const authHeader = c.req.header('authorization') || ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+  if (!token) return null
+
+  return verifyIdentityToken(token, {
+    gcpProjectId: c.env?.GCP_PROJECT_ID || process.env.GCP_PROJECT_ID,
+    gcpApiKey: c.env?.GCP_IDENTITY_API_KEY || process.env.GCP_IDENTITY_API_KEY,
+    localSecret: c.env?.AUTH_LOCAL_SECRET || process.env.AUTH_LOCAL_SECRET,
+  })
+}
+
+// ================= GCP IDENTITY PLATFORM AUTH ENDPOINTS =================
+app.get('/api/auth/config', (c) => {
+  const apiKey = c.env?.GCP_IDENTITY_API_KEY || process.env.GCP_IDENTITY_API_KEY
+  const projectId = c.env?.GCP_PROJECT_ID || process.env.GCP_PROJECT_ID
+  return c.json({
+    provider: apiKey ? 'gcp-identity-platform' : 'local-dev',
+    projectId: projectId || null,
+    guestModeEnabled: true,
+    whatsappSessionSeparation: true,
+  })
+})
+
+app.post('/api/auth/register', async (c) => {
+  try {
+    const body = await c.req.json()
+    const email = String(body.email || '').trim()
+    const password = String(body.password || '')
+    const displayName = body.displayName ? String(body.displayName).trim() : undefined
+
+    if (!email || !password) {
+      return c.json({ error: 'Debes proporcionar correo electrónico y contraseña.' }, 400)
+    }
+
+    const result = await registerWithEmailPassword({
+      email,
+      password,
+      displayName,
+      gcpApiKey: c.env?.GCP_IDENTITY_API_KEY || process.env.GCP_IDENTITY_API_KEY,
+      localSecret: c.env?.AUTH_LOCAL_SECRET || process.env.AUTH_LOCAL_SECRET,
+    })
+
+    return c.json(result, 201)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al registrar usuario'
+    return c.json({ error: message }, 400)
+  }
+})
+
+app.post('/api/auth/login', async (c) => {
+  try {
+    const body = await c.req.json()
+    const email = String(body.email || '').trim()
+    const password = String(body.password || '')
+
+    if (!email || !password) {
+      return c.json({ error: 'Debes proporcionar correo electrónico y contraseña.' }, 400)
+    }
+
+    const result = await signInWithEmailPassword({
+      email,
+      password,
+      gcpApiKey: c.env?.GCP_IDENTITY_API_KEY || process.env.GCP_IDENTITY_API_KEY,
+      localSecret: c.env?.AUTH_LOCAL_SECRET || process.env.AUTH_LOCAL_SECRET,
+    })
+
+    return c.json(result, 200)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al iniciar sesión'
+    return c.json({ error: message }, 401)
+  }
+})
+
+app.get('/api/auth/me', async (c) => {
+  const user = await getAuthenticatedUser(c)
+  if (!user) {
+    return c.json({ authenticated: false, user: null }, 401)
+  }
+  return c.json({ authenticated: true, user }, 200)
+})
 
 app.all('/api/adk/*', async (c) => {
   const url = new URL(c.req.url)
@@ -56,11 +156,23 @@ app.all('/api/adk/*', async (c) => {
   }
 })
 
-// Database endpoints using Drizzle ORM: Orders + Order Items
+// ================= MULTI-TENANT DATABASE ENDPOINTS (ISOLATED BY user.uid) =================
+
+// Orders + Order Items
 app.get('/api/orders', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const db = getDb(c.env?.DATABASE_URL)
-    const ordersList = await db.select().from(coffeeOrders).orderBy(desc(coffeeOrders.createdAt))
+    await ensureMultiTenantSchema(db)
+
+    const ordersList = await db
+      .select()
+      .from(coffeeOrders)
+      .where(eq(coffeeOrders.userId, user.uid))
+      .orderBy(desc(coffeeOrders.createdAt))
+
     if (ordersList.length === 0) return c.json([])
 
     const orderIds = ordersList.map((o) => o.id)
@@ -90,8 +202,12 @@ app.get('/api/orders', async (c) => {
 
 app.post('/api/orders', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
 
     const rawItems: Array<{
       productId?: string | null
@@ -118,6 +234,7 @@ app.post('/api/orders', async (c) => {
     const [newOrder] = await db
       .insert(coffeeOrders)
       .values({
+        userId: user.uid,
         customerId: body.customerId || null,
         customerName: body.customerName,
         totalAmount: body.totalAmount !== undefined ? String(body.totalAmount) : computedTotal.toFixed(2),
@@ -149,9 +266,17 @@ app.post('/api/orders', async (c) => {
 
 app.get('/api/orders/:id', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
-    const [order] = await db.select().from(coffeeOrders).where(eq(coffeeOrders.id, id))
+    await ensureMultiTenantSchema(db)
+
+    const [order] = await db
+      .select()
+      .from(coffeeOrders)
+      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.userId, user.uid)))
     if (!order) return c.json({ error: 'Order not found' }, 404)
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
     return c.json({ ...order, items })
@@ -163,9 +288,14 @@ app.get('/api/orders/:id', async (c) => {
 
 app.patch('/api/orders/:id', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const id = c.req.param('id')
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
+
     const [updated] = await db
       .update(coffeeOrders)
       .set({
@@ -174,7 +304,7 @@ app.patch('/api/orders/:id', async (c) => {
         ...(body.totalAmount !== undefined ? { totalAmount: String(body.totalAmount) } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(coffeeOrders.id, id))
+      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.userId, user.uid)))
       .returning()
     if (!updated) return c.json({ error: 'Order not found' }, 404)
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
@@ -187,11 +317,16 @@ app.patch('/api/orders/:id', async (c) => {
 
 app.delete('/api/orders/:id', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
+
     const [deleted] = await db
       .delete(coffeeOrders)
-      .where(eq(coffeeOrders.id, id))
+      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.userId, user.uid)))
       .returning()
     if (!deleted) return c.json({ error: 'Order not found' }, 404)
     return c.json({ success: true, deleted })
@@ -201,11 +336,20 @@ app.delete('/api/orders/:id', async (c) => {
   }
 })
 
-// Database endpoints using Drizzle ORM: Products
+// Products (Isolated by user.uid)
 app.get('/api/products', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const db = getDb(c.env?.DATABASE_URL)
-    const items = await db.select().from(products).orderBy(asc(products.name))
+    await ensureMultiTenantSchema(db)
+
+    const items = await db
+      .select()
+      .from(products)
+      .where(eq(products.userId, user.uid))
+      .orderBy(asc(products.name))
     return c.json(items)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -215,15 +359,24 @@ app.get('/api/products', async (c) => {
 
 app.post('/api/products', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    const [newProduct] = await db.insert(products).values({
-      name: body.name,
-      category: body.category || 'Café Caliente',
-      price: String(body.price ?? '0.00'),
-      description: body.description,
-      available: body.available !== undefined ? Boolean(body.available) : true,
-    }).returning()
+    await ensureMultiTenantSchema(db)
+
+    const [newProduct] = await db
+      .insert(products)
+      .values({
+        userId: user.uid,
+        name: body.name,
+        category: body.category || 'Café Caliente',
+        price: String(body.price ?? '0.00'),
+        description: body.description,
+        available: body.available !== undefined ? Boolean(body.available) : true,
+      })
+      .returning()
     return c.json(newProduct, 201)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -233,9 +386,14 @@ app.post('/api/products', async (c) => {
 
 app.patch('/api/products/:id', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const id = c.req.param('id')
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
+
     const [updated] = await db
       .update(products)
       .set({
@@ -246,7 +404,7 @@ app.patch('/api/products/:id', async (c) => {
         ...(body.available !== undefined ? { available: Boolean(body.available) } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(products.id, id))
+      .where(and(eq(products.id, id), eq(products.userId, user.uid)))
       .returning()
     if (!updated) return c.json({ error: 'Product not found' }, 404)
     return c.json(updated)
@@ -258,11 +416,16 @@ app.patch('/api/products/:id', async (c) => {
 
 app.delete('/api/products/:id', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
+
     const [deleted] = await db
       .delete(products)
-      .where(eq(products.id, id))
+      .where(and(eq(products.id, id), eq(products.userId, user.uid)))
       .returning()
     if (!deleted) return c.json({ error: 'Product not found' }, 404)
     return c.json({ success: true, deleted })
@@ -272,11 +435,20 @@ app.delete('/api/products/:id', async (c) => {
   }
 })
 
-// Database endpoints using Drizzle ORM: Customers
+// Customers (Isolated by user.uid)
 app.get('/api/customers', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const db = getDb(c.env?.DATABASE_URL)
-    const items = await db.select().from(customers).orderBy(desc(customers.loyaltyPoints), asc(customers.name))
+    await ensureMultiTenantSchema(db)
+
+    const items = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.userId, user.uid))
+      .orderBy(desc(customers.loyaltyPoints), asc(customers.name))
     return c.json(items)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -286,15 +458,24 @@ app.get('/api/customers', async (c) => {
 
 app.post('/api/customers', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    const [newCustomer] = await db.insert(customers).values({
-      name: body.name,
-      email: body.email || null,
-      phone: body.phone || null,
-      favoriteDrink: body.favoriteDrink || null,
-      loyaltyPoints: Number(body.loyaltyPoints) || 0,
-    }).returning()
+    await ensureMultiTenantSchema(db)
+
+    const [newCustomer] = await db
+      .insert(customers)
+      .values({
+        userId: user.uid,
+        name: body.name,
+        email: body.email || null,
+        phone: body.phone || null,
+        favoriteDrink: body.favoriteDrink || null,
+        loyaltyPoints: Number(body.loyaltyPoints) || 0,
+      })
+      .returning()
     return c.json(newCustomer, 201)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -304,9 +485,14 @@ app.post('/api/customers', async (c) => {
 
 app.patch('/api/customers/:id', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const id = c.req.param('id')
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
+
     const [updated] = await db
       .update(customers)
       .set({
@@ -317,7 +503,7 @@ app.patch('/api/customers/:id', async (c) => {
         ...(body.loyaltyPoints !== undefined ? { loyaltyPoints: Number(body.loyaltyPoints) } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(customers.id, id))
+      .where(and(eq(customers.id, id), eq(customers.userId, user.uid)))
       .returning()
     if (!updated) return c.json({ error: 'Customer not found' }, 404)
     return c.json(updated)
@@ -329,11 +515,16 @@ app.patch('/api/customers/:id', async (c) => {
 
 app.delete('/api/customers/:id', async (c) => {
   try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
+
     const [deleted] = await db
       .delete(customers)
-      .where(eq(customers.id, id))
+      .where(and(eq(customers.id, id), eq(customers.userId, user.uid)))
       .returning()
     if (!deleted) return c.json({ error: 'Customer not found' }, 404)
     return c.json({ success: true, deleted })

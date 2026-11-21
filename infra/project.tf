@@ -26,6 +26,7 @@ locals {
 }
 
 resource "google_project" "project" {
+  provider            = google.api_bootstrap
   count               = var.create_project ? 1 : 0
   name                = var.project_name
   project_id          = local.generated_project_id

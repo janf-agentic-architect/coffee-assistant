@@ -11,6 +11,7 @@ DROP TABLE IF EXISTS "products";
 -- Tables
 CREATE TABLE IF NOT EXISTS "products" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" text,
 	"name" text NOT NULL,
 	"category" text DEFAULT 'Café Caliente' NOT NULL,
 	"price" numeric(10, 2) NOT NULL,
@@ -22,6 +23,7 @@ CREATE TABLE IF NOT EXISTS "products" (
 
 CREATE TABLE IF NOT EXISTS "customers" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" text,
 	"name" text NOT NULL,
 	"email" text,
 	"phone" text,
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS "customers" (
 
 CREATE TABLE IF NOT EXISTS "coffee_orders" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" text,
 	"customer_id" uuid REFERENCES "customers"("id") ON DELETE SET NULL,
 	"customer_name" text NOT NULL,
 	"status" text DEFAULT 'pending' NOT NULL,
