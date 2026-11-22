@@ -12,6 +12,7 @@ export interface WebTestSession {
   id: string
   label: string
   adkUserId: string
+  adkSessionId?: string
   createdAt: string
 }
 
@@ -53,22 +54,25 @@ function getOrCreateGuestId(): string {
   return id
 }
 
-function buildAdkUserId(ownerKey: string, sessionId: string, isGuest: boolean): string {
-  // Always prefixed with guest_ or web_ so web playground sessions stay 100% separate from wa_<phone> WhatsApp sessions
+function buildAdkUserId(ownerKey: string, isGuest: boolean): string {
+  // Always prefixed with guest_ or web_ so web playground sessions stay 100% separate from wa_<phone> WhatsApp sessions.
+  // All web sessions of the same user share the same ADK user_id so `user:` state persists across conversations.
   const cleanOwner = ownerKey.replace(/[^a-zA-Z0-9_-]/g, '')
   const prefix = isGuest ? 'guest' : 'web'
-  return `${prefix}_${cleanOwner}_${sessionId}`
+  return `${prefix}_${cleanOwner}`
 }
 
 function loadOrInitSessions(ownerKey: string, isGuest: boolean): {
   sessions: WebTestSession[]
   activeSessionId: string
 } {
+  const canonicalAdkUserId = buildAdkUserId(ownerKey, isGuest)
+
   if (typeof window === 'undefined') {
     const defaultSession: WebTestSession = {
       id: 's1',
       label: 'Sesión Web #1',
-      adkUserId: buildAdkUserId(ownerKey, 's1', isGuest),
+      adkUserId: canonicalAdkUserId,
       createdAt: new Date().toISOString(),
     }
     return { sessions: [defaultSession], activeSessionId: defaultSession.id }
@@ -84,10 +88,22 @@ function loadOrInitSessions(ownerKey: string, isGuest: boolean): {
         activeSessionId: string
       }
       if (Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
+        const firstUserId = parsed.sessions[0]?.adkUserId
+        const sharedUserId =
+          firstUserId &&
+          !firstUserId.includes('_s_') &&
+          !firstUserId.endsWith(`_${parsed.sessions[0].id}`)
+            ? firstUserId
+            : canonicalAdkUserId
+        const normalizedSessions = parsed.sessions.map((s) => ({
+          ...s,
+          adkUserId: sharedUserId,
+        }))
         const active =
-          parsed.sessions.find((s) => s.id === parsed.activeSessionId) || parsed.sessions[0]
+          normalizedSessions.find((s) => s.id === parsed.activeSessionId) ||
+          normalizedSessions[0]
         return {
-          sessions: parsed.sessions,
+          sessions: normalizedSessions,
           activeSessionId: active.id,
         }
       }
@@ -100,7 +116,7 @@ function loadOrInitSessions(ownerKey: string, isGuest: boolean): {
   const initialSession: WebTestSession = {
     id: sId,
     label: 'Sesión Web #1',
-    adkUserId: buildAdkUserId(ownerKey, sId, isGuest),
+    adkUserId: canonicalAdkUserId,
     createdAt: new Date().toISOString(),
   }
   const result = { sessions: [initialSession], activeSessionId: initialSession.id }
@@ -255,7 +271,7 @@ export const authStore = {
     const newSession: WebTestSession = {
       id: sId,
       label: customLabel?.trim() || `Sesión Web #${nextNumber}`,
-      adkUserId: buildAdkUserId(ownerKey, sId, state.isGuest),
+      adkUserId: state.activeAdkUserId || buildAdkUserId(ownerKey, state.isGuest),
       createdAt: new Date().toISOString(),
     }
     const nextSessions = [...state.sessions, newSession]
@@ -266,6 +282,69 @@ export const authStore = {
       sessions: nextSessions,
       activeSessionId: newSession.id,
       activeAdkUserId: newSession.adkUserId,
+    }
+    emitChange()
+  },
+
+  createNewTestUser() {
+    const newShortId = generateShortId()
+    if (state.isGuest) {
+      const oldStorageKey = `${WEB_SESSIONS_PREFIX}${state.guestId}`
+      const newGuestId = `guest_${newShortId}`
+      if (typeof window !== 'undefined') {
+        try {
+          window.sessionStorage.removeItem(oldStorageKey)
+          window.sessionStorage.setItem(GUEST_ID_STORAGE_KEY, newGuestId)
+        } catch {
+          // Ignore storage errors
+        }
+      }
+      const { sessions, activeSessionId } = loadOrInitSessions(newGuestId, true)
+      const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0]
+      state = {
+        ...state,
+        guestId: newGuestId,
+        sessions,
+        activeSessionId: activeSession.id,
+        activeAdkUserId: activeSession.adkUserId,
+      }
+      emitChange()
+      return
+    }
+
+    // Authenticated user testing a fresh ADK user profile in the web playground
+    const ownerKey = state.user!.uid
+    const newAdkUserId = `${buildAdkUserId(ownerKey, false)}_${newShortId}`
+    const sId = `s_${generateShortId()}`
+    const initialSession: WebTestSession = {
+      id: sId,
+      label: 'Sesión Web #1',
+      adkUserId: newAdkUserId,
+      createdAt: new Date().toISOString(),
+    }
+    const nextSessions = [initialSession]
+    saveSessionsToStorage(ownerKey, false, nextSessions, initialSession.id)
+    state = {
+      ...state,
+      sessions: nextSessions,
+      activeSessionId: initialSession.id,
+      activeAdkUserId: newAdkUserId,
+    }
+    emitChange()
+  },
+
+  setWebSessionAdkId(sessionId: string, adkSessionId: string | undefined) {
+    const target = state.sessions.find((s) => s.id === sessionId)
+    if (!target || target.adkSessionId === adkSessionId) return
+    const ownerKey = state.isGuest ? state.guestId : state.user!.uid
+    const nextSessions = state.sessions.map((s) =>
+      s.id === sessionId ? { ...s, adkSessionId } : s
+    )
+    saveSessionsToStorage(ownerKey, state.isGuest, nextSessions, state.activeSessionId)
+
+    state = {
+      ...state,
+      sessions: nextSessions,
     }
     emitChange()
   },

@@ -171,14 +171,23 @@ dev-agent-api: ## [Debug] Run only local agent FastAPI backend on port 8080
 dev-web: ## [Debug] Run only web/ development server
 	cd $(WEB_DIR) && pnpm dev
 
-dev-db: ## Run an ephemeral PostgreSQL container with Docker (stops and removes on Ctrl+C)
+dev-db: ## Run an ephemeral PostgreSQL container with Docker, auto-run db-push & db-seed (stops and removes on Ctrl+C)
 	@echo "Starting ephemeral PostgreSQL container on port $(POSTGRES_PORT)..."
 	@echo "Database: $(POSTGRES_DB) | User: $(POSTGRES_USER) | Password: $(POSTGRES_PASSWORD)"
 	@echo "Connection URL: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)"
 	@echo "Seed data directory: $(POSTGRES_INIT_DIR)"
 	@echo "Press Ctrl+C to stop and remove container."
 	@docker rm -f $(POSTGRES_CONTAINER_NAME) 2>/dev/null || true
-	@trap 'docker stop $(POSTGRES_CONTAINER_NAME) >/dev/null 2>&1 || true' INT TERM EXIT; \
+	@( \
+		until docker exec $(POSTGRES_CONTAINER_NAME) pg_isready -h localhost -U $(POSTGRES_USER) -d $(POSTGRES_DB) >/dev/null 2>&1; do \
+			sleep 1; \
+		done; \
+		sleep 1; \
+		echo "==> PostgreSQL is ready! Running db-push and db-seed..."; \
+		cd $(WEB_DIR) && pnpm run db:push && pnpm run db:seed; \
+	) & \
+	INIT_PID=$$!; \
+	trap 'kill $$INIT_PID 2>/dev/null || true; docker stop $(POSTGRES_CONTAINER_NAME) >/dev/null 2>&1 || true' INT TERM EXIT; \
 	docker run --rm --name $(POSTGRES_CONTAINER_NAME) \
 		-e POSTGRES_USER=$(POSTGRES_USER) \
 		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
