@@ -1,7 +1,19 @@
 import { pgTable, text, timestamp, uuid, integer, numeric, boolean } from 'drizzle-orm/pg-core'
 
+export const businesses = pgTable('businesses', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  ownerUserId: text('owner_user_id').notNull(),
+  name: text('name').notNull().default('Mi Cafetería'),
+  description: text('description'),
+  assistantInstructions: text('assistant_instructions'),
+  whatsappPhoneNumberId: text('whatsapp_phone_number_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
 export const products = pgTable('products', {
   id: uuid('id').defaultRandom().primaryKey(),
+  businessId: uuid('business_id').references(() => businesses.id, { onDelete: 'cascade' }),
   userId: text('user_id'),
   name: text('name').notNull(),
   category: text('category').notNull().default('Café Caliente'),
@@ -14,6 +26,7 @@ export const products = pgTable('products', {
 
 export const customers = pgTable('customers', {
   id: uuid('id').defaultRandom().primaryKey(),
+  businessId: uuid('business_id').references(() => businesses.id, { onDelete: 'cascade' }),
   userId: text('user_id'),
   name: text('name').notNull(),
   email: text('email'),
@@ -26,6 +39,7 @@ export const customers = pgTable('customers', {
 
 export const coffeeOrders = pgTable('coffee_orders', {
   id: uuid('id').defaultRandom().primaryKey(),
+  businessId: uuid('business_id').references(() => businesses.id, { onDelete: 'cascade' }),
   userId: text('user_id'),
   customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
   customerName: text('customer_name').notNull(),
@@ -48,6 +62,8 @@ export const orderItems = pgTable('order_items', {
   notes: text('notes'),
 })
 
+export type Business = typeof businesses.$inferSelect
+export type NewBusiness = typeof businesses.$inferInsert
 export type Product = typeof products.$inferSelect
 export type NewProduct = typeof products.$inferInsert
 export type Customer = typeof customers.$inferSelect

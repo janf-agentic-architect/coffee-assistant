@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import PlainTextResponse
 
+from .client import normalize_phone_number
 from .config import settings
 from .models import WhatsAppWebhookPayload
 from .service import WhatsAppService
@@ -84,17 +85,45 @@ async def receive_webhook(
     for entry in payload.entry:
         for change in entry.changes:
             if change.field == "messages" and change.value.messages:
-                # Auto-capture phone_number_id from incoming webhook metadata if not explicitly pinned
+                # Auto-capture phone_number_id and display_phone_number from incoming webhook metadata
                 incoming_phone_id = (
                     change.value.metadata.phone_number_id
                     if change.value.metadata and change.value.metadata.phone_number_id
                     else None
                 )
+                incoming_display_phone = (
+                    change.value.metadata.display_phone_number
+                    if change.value.metadata and change.value.metadata.display_phone_number
+                    else None
+                )
                 if incoming_phone_id and not getattr(service.wa_client, "phone_number_id", ""):
                     service.wa_client.phone_number_id = incoming_phone_id
 
+                contact_names: dict[str, str] = {}
+                for contact in change.value.contacts or []:
+                    profile_name = (
+                        contact.profile.name.strip()
+                        if contact.profile and contact.profile.name
+                        else ""
+                    )
+                    if profile_name:
+                        contact_names[contact.wa_id] = profile_name
+                        normalized_wa_id = normalize_phone_number(contact.wa_id)
+                        if normalized_wa_id:
+                            contact_names[normalized_wa_id] = profile_name
+
                 for message in change.value.messages:
+                    customer_name = (
+                        contact_names.get(message.from_)
+                        or contact_names.get(normalize_phone_number(message.from_))
+                    )
                     # Enqueue background processing so HTTP response returns immediately (<3s)
-                    background_tasks.add_task(service.process_incoming_message, message)
+                    background_tasks.add_task(
+                        service.process_incoming_message,
+                        message,
+                        incoming_phone_id,
+                        incoming_display_phone,
+                        customer_name,
+                    )
 
     return {"status": "ok"}

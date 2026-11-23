@@ -1,8 +1,9 @@
 /** @jsxImportSource react */
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { authStore, useAuth } from '../auth/auth-store'
+import { authStore, useAuth, type BusinessProfile } from '../auth/auth-store'
 import { guestStorage } from '../auth/guest-storage'
 import { AuthModal } from './AuthModal'
+import { BusinessModal } from './BusinessModal'
 
 export interface OrderItem {
   id?: string
@@ -98,6 +99,8 @@ export function OrdersDashboard() {
   const [showOrderModal, setShowOrderModal] = useState<boolean>(false)
   const [showProductModal, setShowProductModal] = useState<boolean>(false)
   const [showCustomerModal, setShowCustomerModal] = useState<boolean>(false)
+  const [showBusinessModal, setShowBusinessModal] = useState<boolean>(false)
+  const [businessModalMode, setBusinessModalMode] = useState<'create' | 'edit'>('create')
   const [submitting, setSubmitting] = useState<boolean>(false)
 
   // Order Form state (Multi-product cart)
@@ -121,13 +124,42 @@ export function OrdersDashboard() {
   const [custFavoriteDrink, setCustFavoriteDrink] = useState('Espresso')
   const [custPoints, setCustPoints] = useState(0)
 
+  const activeBusiness = useMemo(
+    () => auth.businesses.find((b) => b.id === auth.activeBusinessId) || auth.businesses[0] || null,
+    [auth.businesses, auth.activeBusinessId]
+  )
+
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (auth.idToken) {
       headers['Authorization'] = `Bearer ${auth.idToken}`
     }
+    if (auth.activeBusinessId) {
+      headers['X-Business-Id'] = auth.activeBusinessId
+    }
     return headers
-  }, [auth.idToken])
+  }, [auth.idToken, auth.activeBusinessId])
+
+  const fetchBusinesses = useCallback(async () => {
+    if (auth.isGuest || !auth.idToken) return
+    try {
+      const res = await fetch('/api/businesses', {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.idToken}`,
+        },
+      })
+      if (!res.ok) return
+      const list = (await res.json()) as BusinessProfile[]
+      authStore.setBusinesses(list)
+    } catch (err) {
+      console.error('Error fetching businesses:', err)
+    }
+  }, [auth.isGuest, auth.idToken])
+
+  useEffect(() => {
+    fetchBusinesses()
+  }, [fetchBusinesses])
 
   const fetchAllData = useCallback(async () => {
     if (auth.isGuest) {
@@ -739,16 +771,96 @@ export function OrdersDashboard() {
         </div>
       </div>
 
+      {/* Business Switcher Bar */}
+      <div className="business-switcher-bar">
+        {auth.isGuest ? (
+          <>
+            <div className="business-switcher-left">
+              <span className="business-switcher-label">🏪 Negocio Demo:</span>
+              <strong>The Cloud Cafe</strong>
+            </div>
+            <div className="business-switcher-actions">
+              <button
+                type="button"
+                className="btn-business-add"
+                onClick={() => authStore.openAuthModal('register')}
+              >
+                + Crea tu cuenta para agregar negocios
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="business-switcher-left">
+              <label htmlFor="active-business-select" className="business-switcher-label">
+                🏪 Negocio Activo:
+              </label>
+              <select
+                id="active-business-select"
+                className="business-select"
+                value={auth.activeBusinessId || activeBusiness?.id || ''}
+                onChange={(e) => authStore.selectBusiness(e.target.value)}
+                disabled={auth.businesses.length === 0}
+              >
+                {auth.businesses.length === 0 ? (
+                  <option value="">Cargando negocios...</option>
+                ) : (
+                  auth.businesses.map((biz) => (
+                    <option key={biz.id} value={biz.id}>
+                      {biz.name}
+                    </option>
+                  ))
+                )}
+              </select>
+              {activeBusiness?.whatsappPhoneNumberId && (
+                <span
+                  className="business-wa-pill"
+                  title={`WhatsApp Phone Number ID: ${activeBusiness.whatsappPhoneNumberId}`}
+                >
+                  📱 WhatsApp vinculado
+                </span>
+              )}
+            </div>
+            <div className="business-switcher-actions">
+              {activeBusiness && (
+                <button
+                  type="button"
+                  className="btn-business-edit"
+                  onClick={() => {
+                    setBusinessModalMode('edit')
+                    setShowBusinessModal(true)
+                  }}
+                >
+                  ⚙️ Configurar
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-business-add"
+                onClick={() => {
+                  setBusinessModalMode('create')
+                  setShowBusinessModal(true)
+                }}
+              >
+                + Nuevo Negocio
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Header */}
       <div className="orders-header">
         <div>
           <h1 className="orders-title">
-            <span className="coffee-icon">☕</span> Coffee Shop Dashboard
+            <span className="coffee-icon">☕</span>{' '}
+            {!auth.isGuest && activeBusiness ? activeBusiness.name : 'Coffee Shop Dashboard'}
           </h1>
           <p className="orders-subtitle">
             {auth.isGuest
               ? 'Modo Invitado Activo — Datos efímeros en la sesión de tu navegador (sessionStorage)'
-              : 'Órdenes Multi-Producto, Catálogo y Clientes con PostgreSQL & Drizzle ORM'}
+              : activeBusiness?.description ||
+                'Órdenes Multi-Producto, Catálogo y Clientes con PostgreSQL & Drizzle ORM'}
           </p>
         </div>
         <div className="orders-header-actions">
@@ -1623,6 +1735,22 @@ export function OrdersDashboard() {
           </div>
         </div>
       )}
+
+      {/* ================= MODAL: CREAR / EDITAR NEGOCIO ================= */}
+      <BusinessModal
+        open={showBusinessModal}
+        mode={businessModalMode}
+        business={activeBusiness}
+        canDelete={auth.businesses.length > 1}
+        idToken={auth.idToken}
+        onClose={() => setShowBusinessModal(false)}
+        onSaved={() => {
+          fetchAllData()
+        }}
+        onDeleted={() => {
+          fetchAllData()
+        }}
+      />
 
       {/* ================= MODAL: AUTENTICACIÓN GCP IDENTITY PLATFORM ================= */}
       <AuthModal />

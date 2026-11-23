@@ -45,26 +45,41 @@ function AdkThreadSynchronizer({
 
 function AdkSessionRuntime({
   adkUserId,
+  activeBusinessId,
   activeSessionId,
   activeAdkSessionId,
 }: {
   adkUserId: string;
+  activeBusinessId: string | null;
   activeSessionId: string;
   activeAdkSessionId?: string;
 }) {
   const { sessionAdapter, load, stream } = useMemo(() => {
+    const getAuthHeaders = (): Record<string, string> => {
+      const current = authStore.getState();
+      const headers: Record<string, string> = {};
+      if (current.idToken) {
+        headers["Authorization"] = `Bearer ${current.idToken}`;
+      }
+      if (current.activeBusinessId) {
+        headers["X-Business-Id"] = current.activeBusinessId;
+      }
+      return headers;
+    };
     const { adapter, load: loadFn } = createAdkSessionAdapter({
       apiUrl: ADK_API_URL,
       appName: ADK_APP_NAME,
       userId: adkUserId,
+      headers: getAuthHeaders,
     });
     const streamFn = createAdkStream({
       api: ADK_API_URL,
       appName: ADK_APP_NAME,
       userId: adkUserId,
+      headers: getAuthHeaders,
     });
     return { sessionAdapter: adapter, load: loadFn, stream: streamFn };
-  }, [adkUserId]);
+  }, [adkUserId, activeBusinessId]);
 
   const handleThreadIdChange = useCallback((remoteThreadId: string | undefined) => {
     if (!remoteThreadId) return;
@@ -102,6 +117,8 @@ export function MyAssistant() {
   const auth = useAuth();
   const activeSession =
     auth.sessions.find((s) => s.id === auth.activeSessionId) || auth.sessions[0];
+  const activeBusiness =
+    auth.businesses.find((b) => b.id === auth.activeBusinessId) || auth.businesses[0] || null;
 
   const handleDeleteSession = async () => {
     const targetAdkSessionId = activeSession?.adkSessionId;
@@ -109,9 +126,12 @@ export function MyAssistant() {
     authStore.deleteWebSession(targetSessionId);
     if (targetAdkSessionId) {
       try {
+        const headers: Record<string, string> = {};
+        if (auth.idToken) headers["Authorization"] = `Bearer ${auth.idToken}`;
+        if (auth.activeBusinessId) headers["X-Business-Id"] = auth.activeBusinessId;
         await fetch(
           `${ADK_API_URL}/apps/${encodeURIComponent(ADK_APP_NAME)}/users/${encodeURIComponent(auth.activeAdkUserId)}/sessions/${encodeURIComponent(targetAdkSessionId)}`,
-          { method: "DELETE" }
+          { method: "DELETE", headers }
         );
       } catch {
         // Ignore network errors when cleaning up deleted test session
@@ -123,7 +143,9 @@ export function MyAssistant() {
     <div className="assistant-wrapper">
       <div className="assistant-header">
         <div className="assistant-header-top">
-          <span className="assistant-header-title">☕ Asistente Virtual (Playground Web)</span>
+          <span className="assistant-header-title">
+            ☕ {activeBusiness ? activeBusiness.name : "Asistente Virtual (Playground Web)"}
+          </span>
           <span className="assistant-header-status">● Online</span>
         </div>
 
@@ -190,11 +212,12 @@ export function MyAssistant() {
         </div>
       </div>
 
-      {/* Keyed by activeAdkUserId so all web sessions of the same user share one ADK user_id */}
+      {/* Keyed by activeAdkUserId + activeBusinessId so switching businesses refreshes the active ADK context */}
       <div className="assistant-thread-container">
         <AdkSessionRuntime
-          key={auth.activeAdkUserId}
+          key={`${auth.activeAdkUserId}:${auth.activeBusinessId || "demo"}`}
           adkUserId={auth.activeAdkUserId}
+          activeBusinessId={auth.activeBusinessId}
           activeSessionId={auth.activeSessionId}
           activeAdkSessionId={activeSession?.adkSessionId}
         />

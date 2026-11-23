@@ -34,7 +34,13 @@ class WhatsAppService:
             self._processed_messages.popitem(last=False)
         return False
 
-    async def process_incoming_message(self, message: IncomingMessage) -> None:
+    async def process_incoming_message(
+        self,
+        message: IncomingMessage,
+        business_phone_number_id: Optional[str] = None,
+        business_display_phone: Optional[str] = None,
+        customer_name: Optional[str] = None,
+    ) -> None:
         """Process an incoming WhatsApp message (text, image, audio, voice)."""
         msg_id = message.id
         from_phone = normalize_phone_number(message.from_)
@@ -46,6 +52,14 @@ class WhatsAppService:
         # Mark message as read
         await self.wa_client.mark_as_read(msg_id)
 
+        extra_kwargs: dict = {}
+        if business_phone_number_id:
+            extra_kwargs["business_phone_number_id"] = business_phone_number_id
+        if business_display_phone:
+            extra_kwargs["business_display_phone"] = business_display_phone
+        if customer_name and customer_name.strip():
+            extra_kwargs["customer_name"] = customer_name.strip()
+
         try:
             msg_type = message.type
             logger.info("Processing message %s of type '%s' from %s", msg_id, msg_type, from_phone)
@@ -55,6 +69,7 @@ class WhatsAppService:
                 reply = await self.adk_client.send_message(
                     phone_number=from_phone,
                     text=user_text,
+                    **extra_kwargs,
                 )
                 await self.wa_client.send_text_message(to=from_phone, text=reply)
 
@@ -67,6 +82,7 @@ class WhatsAppService:
                     text=caption,
                     media_bytes=media_bytes,
                     mime_type=image_item.mime_type or mime_type,
+                    **extra_kwargs,
                 )
                 await self.wa_client.send_text_message(to=from_phone, text=reply)
 
@@ -78,6 +94,7 @@ class WhatsAppService:
                     text="Escucha y responde a este audio/nota de voz.",
                     media_bytes=media_bytes,
                     mime_type=audio_item.mime_type or mime_type,
+                    **extra_kwargs,
                 )
                 await self.wa_client.send_text_message(to=from_phone, text=reply)
 
@@ -90,6 +107,7 @@ class WhatsAppService:
                     text=caption,
                     media_bytes=media_bytes,
                     mime_type=doc_item.mime_type or mime_type,
+                    **extra_kwargs,
                 )
                 await self.wa_client.send_text_message(to=from_phone, text=reply)
 

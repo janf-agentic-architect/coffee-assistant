@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import re
 from typing import Any, List, Optional
 import httpx
 
@@ -139,15 +140,39 @@ class AdkAgentClient:
             "parts": parts,
         }
 
+    def build_adk_user_id(
+        self,
+        phone_number: str,
+        business_phone_number_id: Optional[str] = None,
+    ) -> str:
+        """Build an ADK user_id scoped by the business WhatsApp phone_number_id and customer phone.
+
+        If the same customer chats with two different businesses on WhatsApp,
+        each business has its own isolated session and conversation history.
+        """
+        biz_phone_id = (business_phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID or "").strip()
+        if biz_phone_id:
+            return f"{self.user_prefix}{biz_phone_id}_{phone_number}"
+        return f"{self.user_prefix}{phone_number}"
+
     async def send_message(
         self,
         phone_number: str,
         text: Optional[str] = None,
         media_bytes: Optional[bytes] = None,
         mime_type: Optional[str] = None,
+        business_phone_number_id: Optional[str] = None,
+        business_display_phone: Optional[str] = None,
+        business_id: Optional[str] = None,
+        business_owner_id: Optional[str] = None,
+        customer_name: Optional[str] = None,
     ) -> str:
         """Send multimodal message to the ADK Agent and return the response text."""
-        user_id = f"{self.user_prefix}{phone_number}"
+        resolved_wa_phone_id = (
+            business_phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID or ""
+        ).strip()
+        normalized_display_phone = re.sub(r"\D+", "", business_display_phone or "")
+        user_id = self.build_adk_user_id(phone_number, resolved_wa_phone_id)
         session_id = await self.get_or_create_session(user_id)
 
         new_message = self.build_multimodal_message(
@@ -156,11 +181,26 @@ class AdkAgentClient:
             mime_type=mime_type,
         )
 
+        state_delta: dict[str, Any] = {
+            "business_id": business_id or settings.DEFAULT_BUSINESS_ID,
+            "user_id": business_owner_id or settings.DEFAULT_USER_ID,
+            "business_owner_id": business_owner_id or settings.DEFAULT_USER_ID,
+        }
+        if resolved_wa_phone_id:
+            state_delta["whatsapp_phone_number_id"] = resolved_wa_phone_id
+        if normalized_display_phone:
+            state_delta["whatsapp_display_phone"] = normalized_display_phone
+        if phone_number:
+            state_delta["customer_phone"] = phone_number
+        if customer_name and customer_name.strip():
+            state_delta["customer_name"] = customer_name.strip()
+
         run_payload = {
             "app_name": self.app_name,
             "user_id": user_id,
             "session_id": session_id,
             "new_message": new_message,
+            "state_delta": state_delta,
         }
 
         run_url = f"{self.base_url}/run"

@@ -6,6 +6,7 @@ REGION := us-east1
 AGENT_DIR := agents/coffee-assistant
 WEB_DIR := web
 CHANNELS_DIR := channels
+TOOLBOX_DIR := mcp/mcp-toolbox
 WHATSAPP_PORT := 8001
 
 # Ephemeral PostgreSQL configuration derived from PROJECT_NAME
@@ -43,7 +44,7 @@ endif
 WHATSAPP_SERVICE_NAME := $(PROJECT_NAME)-whatsapp
 WHATSAPP_IMAGE_TAG = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
 
-.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
+.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-toolbox dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -170,6 +171,9 @@ dev-agent-api: ## [Debug] Run only local agent FastAPI backend on port 8080
 
 dev-web: ## [Debug] Run only web/ development server
 	cd $(WEB_DIR) && pnpm dev
+
+dev-toolbox: ## Run local MCP Toolbox server with tools.yaml
+	cd $(TOOLBOX_DIR) && ./toolbox --config "tools.yaml"
 
 dev-db: ## Run an ephemeral PostgreSQL container with Docker, auto-run db-push & db-seed (stops and removes on Ctrl+C)
 	@echo "Starting ephemeral PostgreSQL container on port $(POSTGRES_PORT)..."

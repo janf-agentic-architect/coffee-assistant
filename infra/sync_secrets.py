@@ -22,12 +22,13 @@ def sync_secrets(env_file: str, project_id: str, output_file: str):
             key = key.strip()
             val = val.strip().strip("\"'")
 
-            # System/platform variables must remain plaintext env vars, not Secret Manager secrets
+            # System/platform and local-only variables must not be synced to Secret Manager
             if key in [
                 "GOOGLE_CLOUD_PROJECT",
                 "GOOGLE_GENAI_USE_ENTERPRISE",
                 "GOOGLE_CLOUD_LOCATION",
                 "MODEL",
+                "RATE_LIMIT_ENABLED",
             ]:
                 continue
 

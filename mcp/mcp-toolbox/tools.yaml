@@ -1,0 +1,148 @@
+kind: source
+name: coffee-pg-source
+type: postgres
+host: ${POSTGRES_HOST:127.0.0.1}
+port: ${POSTGRES_PORT:5432}
+database: ${POSTGRES_DB:coffee_assistant_db}
+user: ${POSTGRES_USER:postgres}
+password: ${POSTGRES_PASSWORD:postgres}
+---
+kind: tool
+name: get-products-by-business
+type: postgres-sql
+source: coffee-pg-source
+description: >-
+  Obtiene el menú de productos disponibles de un negocio específico usando su business_id
+  (UUID del negocio), su whatsapp_phone_number_id o su número de teléfono visible de WhatsApp.
+parameters:
+  - name: business_id
+    type: string
+    description: El UUID del negocio (businesses.id / products.business_id) o el whatsapp_phone_number_id del negocio.
+  - name: whatsapp_display_phone
+    type: string
+    description: Número de teléfono visible de WhatsApp del negocio (solo dígitos, opcional).
+statement: >-
+  SELECT
+    p.id,
+    p.business_id,
+    b.name AS business_name,
+    b.description AS business_description,
+    p.name,
+    p.category,
+    p.price,
+    p.description,
+    p.available
+  FROM products p
+  LEFT JOIN businesses b ON p.business_id = b.id
+  WHERE
+    (
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM businesses bw
+          WHERE bw.whatsapp_phone_number_id = $1::text
+        )
+          THEN b.whatsapp_phone_number_id = $1::text
+        WHEN $2::text <> '' AND EXISTS (
+          SELECT 1 FROM businesses bw
+          WHERE regexp_replace(COALESCE(bw.whatsapp_phone_number_id, ''), '[^0-9]', '', 'g')
+              = regexp_replace($2::text, '[^0-9]', '', 'g')
+            AND regexp_replace($2::text, '[^0-9]', '', 'g') <> ''
+        )
+          THEN regexp_replace(COALESCE(b.whatsapp_phone_number_id, ''), '[^0-9]', '', 'g')
+             = regexp_replace($2::text, '[^0-9]', '', 'g')
+        WHEN EXISTS (SELECT 1 FROM businesses bw WHERE bw.id::text = $1::text)
+          THEN (p.business_id::text = $1::text OR p.business_id IS NULL)
+        ELSE (p.business_id::text = '00000000-0000-0000-0000-000000000001' OR p.business_id IS NULL)
+      END
+    )
+    AND p.available = true
+  ORDER BY p.category ASC, p.name ASC;
+---
+kind: tool
+name: upsert-whatsapp-customer
+type: postgres-sql
+source: coffee-pg-source
+description: >-
+  Registra automáticamente un cliente nuevo que se comunica por WhatsApp (si aún no existe
+  para el negocio resuelto) y devuelve sus datos actuales.
+parameters:
+  - name: business_id
+    type: string
+    description: El UUID del negocio (businesses.id) o el whatsapp_phone_number_id del negocio.
+  - name: whatsapp_display_phone
+    type: string
+    description: Número de teléfono visible de WhatsApp del negocio (solo dígitos, opcional).
+  - name: customer_phone
+    type: string
+    description: Número de teléfono del cliente de WhatsApp.
+  - name: customer_name
+    type: string
+    description: Nombre de perfil de WhatsApp del cliente (opcional).
+statement: >-
+  WITH resolved_business AS (
+    SELECT id, owner_user_id
+    FROM businesses
+    WHERE
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM businesses bw
+          WHERE bw.whatsapp_phone_number_id = $1::text
+        )
+          THEN whatsapp_phone_number_id = $1::text
+        WHEN $2::text <> '' AND EXISTS (
+          SELECT 1 FROM businesses bw
+          WHERE regexp_replace(COALESCE(bw.whatsapp_phone_number_id, ''), '[^0-9]', '', 'g')
+              = regexp_replace($2::text, '[^0-9]', '', 'g')
+            AND regexp_replace($2::text, '[^0-9]', '', 'g') <> ''
+        )
+          THEN regexp_replace(COALESCE(whatsapp_phone_number_id, ''), '[^0-9]', '', 'g')
+             = regexp_replace($2::text, '[^0-9]', '', 'g')
+        WHEN EXISTS (SELECT 1 FROM businesses bw WHERE bw.id::text = $1::text)
+          THEN id::text = $1::text
+        ELSE id::text = '00000000-0000-0000-0000-000000000001'
+      END
+    LIMIT 1
+  ),
+  normalized AS (
+    SELECT
+      regexp_replace(COALESCE($3::text, ''), '[^0-9]', '', 'g') AS digits,
+      CASE
+        WHEN regexp_replace(COALESCE($3::text, ''), '[^0-9]', '', 'g') <> ''
+          THEN '+' || regexp_replace(COALESCE($3::text, ''), '[^0-9]', '', 'g')
+        ELSE ''
+      END AS formatted_phone,
+      COALESCE(
+        NULLIF(trim(COALESCE($4::text, '')), ''),
+        '+' || regexp_replace(COALESCE($3::text, ''), '[^0-9]', '', 'g')
+      ) AS customer_name
+  ),
+  existing AS (
+    SELECT c.id, c.business_id, c.name, c.phone, c.favorite_drink, c.loyalty_points
+    FROM customers c
+    JOIN resolved_business rb ON c.business_id = rb.id
+    JOIN normalized n ON n.digits <> ''
+    WHERE regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = n.digits
+    LIMIT 1
+  ),
+  inserted AS (
+    INSERT INTO customers (business_id, user_id, name, phone, loyalty_points)
+    SELECT rb.id, rb.owner_user_id, n.customer_name, n.formatted_phone, 0
+    FROM resolved_business rb
+    JOIN normalized n ON n.digits <> ''
+    WHERE NOT EXISTS (SELECT 1 FROM existing)
+    ON CONFLICT DO NOTHING
+    RETURNING id, business_id, name, phone, favorite_drink, loyalty_points
+  )
+  SELECT id, business_id, name, phone, favorite_drink, loyalty_points, false AS is_new FROM existing
+  UNION ALL
+  SELECT id, business_id, name, phone, favorite_drink, loyalty_points, true AS is_new FROM inserted
+  LIMIT 1;
+---
+kind: toolset
+name: coffee-toolset
+tools:
+  - get-products-by-business
+
+
+
+

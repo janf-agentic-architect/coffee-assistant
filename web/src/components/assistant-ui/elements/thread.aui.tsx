@@ -5,6 +5,7 @@ import {
   ComposerPrimitive,
   AttachmentPrimitive,
 } from "@assistant-ui/react";
+import { MarkdownText } from "./markdown-text";
 
 export function Thread() {
   return (
@@ -142,7 +143,9 @@ function UserMessage() {
 function AssistantMessage() {
   return (
     <MessagePrimitive.Root className="aui-message aui-message-assistant">
-      <MessagePrimitive.Parts />
+      <MessagePrimitive.Parts>
+        {({ part }) => (part.type === "text" ? <MarkdownText /> : null)}
+      </MessagePrimitive.Parts>
     </MessagePrimitive.Root>
   );
 }

@@ -5,7 +5,9 @@ from google.adk.models.llm_request import LlmRequest
 
 
 @pytest.mark.asyncio
-async def test_in_memory_rate_limiter_blocks_after_limit():
+async def test_in_memory_rate_limiter_blocks_after_limit(monkeypatch):
+    monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
+    monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
     plugin = UpstashRateLimitPlugin(max_requests=2, window_seconds=60)
 
     # Mock callback context
@@ -82,3 +84,25 @@ async def test_redis_rate_limiter_flow():
     assert res3 is not None
     assert "límite diario de 2 mensajes" in res3.content.parts[0].text
     assert "2h 0m" in res3.content.parts[0].text
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_disabled_bypasses_all_requests():
+    plugin = UpstashRateLimitPlugin(
+        max_requests=1,
+        window_seconds=60,
+        url="https://mock.upstash.io",
+        token="mock_token",
+        enabled=False,
+    )
+    assert plugin.redis is None
+
+    mock_context = MagicMock()
+    mock_context.session.user_id = "local_user"
+    mock_request = MagicMock(spec=LlmRequest)
+
+    for _ in range(5):
+        res = await plugin.before_model_callback(
+            callback_context=mock_context, llm_request=mock_request
+        )
+        assert res is None

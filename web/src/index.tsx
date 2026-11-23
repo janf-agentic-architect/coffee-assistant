@@ -12,6 +12,10 @@ import {
 import {
   getDb,
   ensureMultiTenantSchema,
+  getOrCreateBusinessForUser,
+  listBusinessesForUser,
+  resolveActiveBusinessForUser,
+  businesses,
   coffeeOrders,
   orderItems,
   products,
@@ -74,7 +78,22 @@ app.post('/api/auth/register', async (c) => {
       localSecret: c.env?.AUTH_LOCAL_SECRET || process.env.AUTH_LOCAL_SECRET,
     })
 
-    return c.json(result, 201)
+    let businessId: string | undefined
+    try {
+      const db = getDb(c.env?.DATABASE_URL)
+      const business = await getOrCreateBusinessForUser(db, result.user)
+      businessId = business.id
+    } catch {
+      // Allow auth even if local DB is not running yet
+    }
+
+    return c.json(
+      {
+        ...result,
+        user: { ...result.user, businessId },
+      },
+      201
+    )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error al registrar usuario'
     return c.json({ error: message }, 400)
@@ -98,7 +117,22 @@ app.post('/api/auth/login', async (c) => {
       localSecret: c.env?.AUTH_LOCAL_SECRET || process.env.AUTH_LOCAL_SECRET,
     })
 
-    return c.json(result, 200)
+    let businessId: string | undefined
+    try {
+      const db = getDb(c.env?.DATABASE_URL)
+      const business = await getOrCreateBusinessForUser(db, result.user)
+      businessId = business.id
+    } catch {
+      // Allow auth even if local DB is not running yet
+    }
+
+    return c.json(
+      {
+        ...result,
+        user: { ...result.user, businessId },
+      },
+      200
+    )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error al iniciar sesión'
     return c.json({ error: message }, 401)
@@ -110,14 +144,269 @@ app.get('/api/auth/me', async (c) => {
   if (!user) {
     return c.json({ authenticated: false, user: null }, 401)
   }
-  return c.json({ authenticated: true, user }, 200)
+  let business = null
+  try {
+    const db = getDb(c.env?.DATABASE_URL)
+    business = await getOrCreateBusinessForUser(db, user)
+  } catch {
+    // Ignore DB errors
+  }
+  return c.json(
+    {
+      authenticated: true,
+      user: { ...user, businessId: business?.id },
+      business,
+    },
+    200
+  )
 })
+
+function getRequestedBusinessId(c: Context<{ Bindings: Bindings }>): string | null {
+  const fromHeader = c.req.header('x-business-id')?.trim()
+  if (fromHeader) return fromHeader
+  const fromQuery = c.req.query('businessId')?.trim()
+  return fromQuery || null
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const err = error as { code?: string; cause?: { code?: string }; message?: string }
+  return (
+    err.code === '23505' ||
+    err.cause?.code === '23505' ||
+    (typeof err.message === 'string' && err.message.includes('23505'))
+  )
+}
+
+app.get('/api/businesses', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
+    const db = getDb(c.env?.DATABASE_URL)
+    const list = await listBusinessesForUser(db, user)
+    return c.json(list)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.post('/api/businesses', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
+    const body = await c.req.json()
+    const name = String(body.name || '').trim()
+    if (!name) {
+      return c.json({ error: 'El nombre del negocio es obligatorio.' }, 400)
+    }
+
+    const description =
+      body.description !== undefined && String(body.description).trim()
+        ? String(body.description).trim()
+        : null
+    const assistantInstructions =
+      body.assistantInstructions !== undefined && String(body.assistantInstructions).trim()
+        ? String(body.assistantInstructions).trim()
+        : null
+    const whatsappPhoneNumberId =
+      body.whatsappPhoneNumberId !== undefined && String(body.whatsappPhoneNumberId).trim()
+        ? String(body.whatsappPhoneNumberId).trim()
+        : null
+
+    const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
+
+    const [created] = await db
+      .insert(businesses)
+      .values({
+        ownerUserId: user.uid,
+        name,
+        description,
+        assistantInstructions,
+        whatsappPhoneNumberId,
+      })
+      .returning()
+
+    return c.json(created, 201)
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return c.json(
+        { error: 'Ese WhatsApp Phone Number ID ya está asignado a otro negocio.' },
+        409
+      )
+    }
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 400)
+  }
+})
+
+app.patch('/api/businesses/:id', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
+    const id = c.req.param('id')
+    const body = await c.req.json()
+    const db = getDb(c.env?.DATABASE_URL)
+    await ensureMultiTenantSchema(db)
+
+    const updatePayload: Partial<typeof businesses.$inferInsert> = {
+      updatedAt: new Date(),
+    }
+
+    if (body.name !== undefined) {
+      const trimmedName = String(body.name).trim()
+      if (!trimmedName) {
+        return c.json({ error: 'El nombre del negocio no puede estar vacío.' }, 400)
+      }
+      updatePayload.name = trimmedName
+    }
+    if (body.description !== undefined) {
+      updatePayload.description = String(body.description || '').trim() || null
+    }
+    if (body.assistantInstructions !== undefined) {
+      updatePayload.assistantInstructions =
+        String(body.assistantInstructions || '').trim() || null
+    }
+    if (body.whatsappPhoneNumberId !== undefined) {
+      updatePayload.whatsappPhoneNumberId =
+        String(body.whatsappPhoneNumberId || '').trim() || null
+    }
+
+    const [updated] = await db
+      .update(businesses)
+      .set(updatePayload)
+      .where(and(eq(businesses.id, id), eq(businesses.ownerUserId, user.uid)))
+      .returning()
+
+    if (!updated) return c.json({ error: 'Negocio no encontrado' }, 404)
+    return c.json(updated)
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return c.json(
+        { error: 'Ese WhatsApp Phone Number ID ya está asignado a otro negocio.' },
+        409
+      )
+    }
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.delete('/api/businesses/:id', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
+    const id = c.req.param('id')
+    const db = getDb(c.env?.DATABASE_URL)
+    const userBusinesses = await listBusinessesForUser(db, user)
+
+    if (userBusinesses.length <= 1) {
+      return c.json(
+        { error: 'Debes mantener al menos un negocio activo en tu cuenta.' },
+        400
+      )
+    }
+
+    const [deleted] = await db
+      .delete(businesses)
+      .where(and(eq(businesses.id, id), eq(businesses.ownerUserId, user.uid)))
+      .returning()
+
+    if (!deleted) return c.json({ error: 'Negocio no encontrado' }, 404)
+    return c.json({ success: true, deleted })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.get('/api/business', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
+    const db = getDb(c.env?.DATABASE_URL)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
+    return c.json(business)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+app.patch('/api/business', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) return c.json({ error: 'No autenticado' }, 401)
+
+    const body = await c.req.json()
+    const db = getDb(c.env?.DATABASE_URL)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
+
+    const [updated] = await db
+      .update(businesses)
+      .set({
+        ...(body.name !== undefined ? { name: String(body.name).trim() } : {}),
+        ...(body.description !== undefined
+          ? { description: String(body.description || '').trim() || null }
+          : {}),
+        ...(body.assistantInstructions !== undefined
+          ? { assistantInstructions: String(body.assistantInstructions || '').trim() || null }
+          : {}),
+        ...(body.whatsappPhoneNumberId !== undefined
+          ? { whatsappPhoneNumberId: body.whatsappPhoneNumberId ? String(body.whatsappPhoneNumberId).trim() : null }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(businesses.id, business.id))
+      .returning()
+
+    return c.json(updated)
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return c.json(
+        { error: 'Ese WhatsApp Phone Number ID ya está asignado a otro negocio.' },
+        409
+      )
+    }
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+const DEFAULT_DEMO_BUSINESS_ID = '00000000-0000-0000-0000-000000000001'
 
 app.all('/api/adk/*', async (c) => {
   const url = new URL(c.req.url)
   const subPath = url.pathname.replace(/^\/api\/adk/, '')
   const baseUrl = (c.env?.AGENT_RUNTIME_API_URL || 'http://localhost:8080').replace(/\/$/, '')
   const targetUrl = `${baseUrl}${subPath}${url.search}`
+
+  // Resolve the active business from the authenticated owner (or fallback to the default demo business)
+  let businessId = DEFAULT_DEMO_BUSINESS_ID
+  let businessName = 'The Cloud Cafe'
+  let businessDescription = ''
+  let businessInstructions = ''
+  let ownerUserId = 'usr_demo_business'
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (user) {
+      ownerUserId = user.uid
+      const db = getDb(c.env?.DATABASE_URL)
+      const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
+      businessId = business.id
+      businessName = business.name || 'Mi Cafetería'
+      businessDescription = business.description || ''
+      businessInstructions = business.assistantInstructions || ''
+    }
+  } catch {
+    // Fallback to demo business if DB is temporarily unreachable
+  }
 
   const headers = new Headers()
   const contentType = c.req.header('content-type')
@@ -130,11 +419,49 @@ app.all('/api/adk/*', async (c) => {
     headers.set('Authorization', `Bearer ${token}`)
   }
 
+  let requestBody: BodyInit | undefined = ['GET', 'HEAD'].includes(c.req.method)
+    ? undefined
+    : c.req.raw.body
+
+  // Inject business context into stateDelta on /run_sse and /run (or initial state on session creation)
+  if (c.req.method === 'POST' && contentType?.includes('application/json')) {
+    try {
+      const rawJson = (await c.req.json()) as Record<string, unknown>
+      const businessState = {
+        business_id: businessId,
+        business_name: businessName,
+        business_description: businessDescription,
+        business_instructions: businessInstructions,
+        user_id: ownerUserId,
+        business_owner_id: ownerUserId,
+      }
+      if (subPath === '/run_sse' || subPath === '/run') {
+        const existingDelta =
+          (rawJson.stateDelta as Record<string, unknown> | undefined) ||
+          (rawJson.state_delta as Record<string, unknown> | undefined) ||
+          {}
+        rawJson.stateDelta = {
+          ...existingDelta,
+          ...businessState,
+        }
+      } else if (/^\/apps\/[^/]+\/users\/[^/]+\/sessions$/.test(subPath)) {
+        const existingState = (rawJson.state as Record<string, unknown> | undefined) || {}
+        rawJson.state = {
+          ...existingState,
+          ...businessState,
+        }
+      }
+      requestBody = JSON.stringify(rawJson)
+    } catch {
+      // Keep original body if not valid JSON
+    }
+  }
+
   try {
     const response = await fetch(targetUrl, {
       method: c.req.method,
       headers,
-      body: ['GET', 'HEAD'].includes(c.req.method) ? undefined : c.req.raw.body,
+      body: requestBody,
     })
 
     return new Response(response.body, {
@@ -156,7 +483,7 @@ app.all('/api/adk/*', async (c) => {
   }
 })
 
-// ================= MULTI-TENANT DATABASE ENDPOINTS (ISOLATED BY user.uid) =================
+// ================= MULTI-TENANT DATABASE ENDPOINTS (ISOLATED BY business.id) =================
 
 // Orders + Order Items
 app.get('/api/orders', async (c) => {
@@ -165,12 +492,12 @@ app.get('/api/orders', async (c) => {
     if (!user) return c.json({ error: 'No autenticado' }, 401)
 
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const ordersList = await db
       .select()
       .from(coffeeOrders)
-      .where(eq(coffeeOrders.userId, user.uid))
+      .where(eq(coffeeOrders.businessId, business.id))
       .orderBy(desc(coffeeOrders.createdAt))
 
     if (ordersList.length === 0) return c.json([])
@@ -207,7 +534,7 @@ app.post('/api/orders', async (c) => {
 
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const rawItems: Array<{
       productId?: string | null
@@ -234,6 +561,7 @@ app.post('/api/orders', async (c) => {
     const [newOrder] = await db
       .insert(coffeeOrders)
       .values({
+        businessId: business.id,
         userId: user.uid,
         customerId: body.customerId || null,
         customerName: body.customerName,
@@ -271,12 +599,12 @@ app.get('/api/orders/:id', async (c) => {
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [order] = await db
       .select()
       .from(coffeeOrders)
-      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.userId, user.uid)))
+      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.businessId, business.id)))
     if (!order) return c.json({ error: 'Order not found' }, 404)
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
     return c.json({ ...order, items })
@@ -294,7 +622,7 @@ app.patch('/api/orders/:id', async (c) => {
     const id = c.req.param('id')
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [updated] = await db
       .update(coffeeOrders)
@@ -304,7 +632,7 @@ app.patch('/api/orders/:id', async (c) => {
         ...(body.totalAmount !== undefined ? { totalAmount: String(body.totalAmount) } : {}),
         updatedAt: new Date(),
       })
-      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.userId, user.uid)))
+      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.businessId, business.id)))
       .returning()
     if (!updated) return c.json({ error: 'Order not found' }, 404)
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
@@ -322,11 +650,11 @@ app.delete('/api/orders/:id', async (c) => {
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [deleted] = await db
       .delete(coffeeOrders)
-      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.userId, user.uid)))
+      .where(and(eq(coffeeOrders.id, id), eq(coffeeOrders.businessId, business.id)))
       .returning()
     if (!deleted) return c.json({ error: 'Order not found' }, 404)
     return c.json({ success: true, deleted })
@@ -336,19 +664,19 @@ app.delete('/api/orders/:id', async (c) => {
   }
 })
 
-// Products (Isolated by user.uid)
+// Products (Isolated by business.id)
 app.get('/api/products', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
     if (!user) return c.json({ error: 'No autenticado' }, 401)
 
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const items = await db
       .select()
       .from(products)
-      .where(eq(products.userId, user.uid))
+      .where(eq(products.businessId, business.id))
       .orderBy(asc(products.name))
     return c.json(items)
   } catch (error) {
@@ -364,11 +692,12 @@ app.post('/api/products', async (c) => {
 
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [newProduct] = await db
       .insert(products)
       .values({
+        businessId: business.id,
         userId: user.uid,
         name: body.name,
         category: body.category || 'Café Caliente',
@@ -392,7 +721,7 @@ app.patch('/api/products/:id', async (c) => {
     const id = c.req.param('id')
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [updated] = await db
       .update(products)
@@ -404,7 +733,7 @@ app.patch('/api/products/:id', async (c) => {
         ...(body.available !== undefined ? { available: Boolean(body.available) } : {}),
         updatedAt: new Date(),
       })
-      .where(and(eq(products.id, id), eq(products.userId, user.uid)))
+      .where(and(eq(products.id, id), eq(products.businessId, business.id)))
       .returning()
     if (!updated) return c.json({ error: 'Product not found' }, 404)
     return c.json(updated)
@@ -421,11 +750,11 @@ app.delete('/api/products/:id', async (c) => {
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [deleted] = await db
       .delete(products)
-      .where(and(eq(products.id, id), eq(products.userId, user.uid)))
+      .where(and(eq(products.id, id), eq(products.businessId, business.id)))
       .returning()
     if (!deleted) return c.json({ error: 'Product not found' }, 404)
     return c.json({ success: true, deleted })
@@ -435,19 +764,19 @@ app.delete('/api/products/:id', async (c) => {
   }
 })
 
-// Customers (Isolated by user.uid)
+// Customers (Isolated by business.id)
 app.get('/api/customers', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
     if (!user) return c.json({ error: 'No autenticado' }, 401)
 
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const items = await db
       .select()
       .from(customers)
-      .where(eq(customers.userId, user.uid))
+      .where(eq(customers.businessId, business.id))
       .orderBy(desc(customers.loyaltyPoints), asc(customers.name))
     return c.json(items)
   } catch (error) {
@@ -463,11 +792,12 @@ app.post('/api/customers', async (c) => {
 
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [newCustomer] = await db
       .insert(customers)
       .values({
+        businessId: business.id,
         userId: user.uid,
         name: body.name,
         email: body.email || null,
@@ -491,7 +821,7 @@ app.patch('/api/customers/:id', async (c) => {
     const id = c.req.param('id')
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [updated] = await db
       .update(customers)
@@ -503,7 +833,7 @@ app.patch('/api/customers/:id', async (c) => {
         ...(body.loyaltyPoints !== undefined ? { loyaltyPoints: Number(body.loyaltyPoints) } : {}),
         updatedAt: new Date(),
       })
-      .where(and(eq(customers.id, id), eq(customers.userId, user.uid)))
+      .where(and(eq(customers.id, id), eq(customers.businessId, business.id)))
       .returning()
     if (!updated) return c.json({ error: 'Customer not found' }, 404)
     return c.json(updated)
@@ -520,11 +850,11 @@ app.delete('/api/customers/:id', async (c) => {
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
-    await ensureMultiTenantSchema(db)
+    const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
     const [deleted] = await db
       .delete(customers)
-      .where(and(eq(customers.id, id), eq(customers.userId, user.uid)))
+      .where(and(eq(customers.id, id), eq(customers.businessId, business.id)))
       .returning()
     if (!deleted) return c.json({ error: 'Customer not found' }, 404)
     return c.json({ success: true, deleted })

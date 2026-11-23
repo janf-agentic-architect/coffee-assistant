@@ -15,6 +15,7 @@ os.environ["ADK_APP_NAME"] = "chat_assistant"
 from whatsapp.main import app
 from whatsapp.adk_client import AdkAgentClient
 from whatsapp.client import WhatsAppCloudApiClient, normalize_phone_number
+from whatsapp.formatting import markdown_to_whatsapp
 
 
 @pytest.fixture
@@ -264,6 +265,160 @@ async def test_whatsapp_client_auto_discovers_phone_number_id(monkeypatch):
     resolved_id = await wa_client.ensure_phone_number_id()
     assert resolved_id == "phone_id_445566"
     assert wa_client.phone_number_id == "phone_id_445566"
+
+
+def test_markdown_to_whatsapp_formatting():
+    md = (
+        "### Menú del día\n\n"
+        "* **Latte** - $5.00 (*con leche vaporizada*)\n"
+        "* __Cold Brew__ - ~~$4.50~~ $4.00\n"
+        "Visita [nuestra web](https://cafe.example.com) y usa `CAFE10`.\n\n"
+        "```python\n"
+        "print('**no tocar**')\n"
+        "```"
+    )
+    expected = (
+        "*Menú del día*\n\n"
+        "- *Latte* - $5.00 (_con leche vaporizada_)\n"
+        "- *Cold Brew* - ~$4.50~ $4.00\n"
+        "Visita nuestra web (https://cafe.example.com) y usa `CAFE10`.\n\n"
+        "```\n"
+        "print('**no tocar**')\n"
+        "```"
+    )
+    assert markdown_to_whatsapp(md) == expected
+
+
+def test_markdown_to_whatsapp_table():
+    md = (
+        "| Bebida | Precio |\n"
+        "| --- | --- |\n"
+        "| **Espresso** | $3.50 |\n"
+        "| **Latte** | $5.00 |"
+    )
+    assert markdown_to_whatsapp(md) == "- *Espresso*: $3.50\n- *Latte*: $5.00"
+
+
+@pytest.mark.anyio
+async def test_send_text_message_formats_markdown_for_whatsapp(monkeypatch):
+    import httpx
+
+    captured = {}
+
+    class MockResponse:
+        status_code = 200
+
+        def json(self):
+            return {"messages": [{"id": "wamid.out1"}]}
+
+    async def mock_post(self, url, json=None, headers=None):
+        captured["url"] = url
+        captured["json"] = json
+        return MockResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    wa_client = WhatsAppCloudApiClient(token="test_token", phone_number_id="12345")
+    await wa_client.send_text_message("5213312345678", "### Total\n* **Latte**: $5.00")
+
+    assert captured["json"]["to"] == "523312345678"
+    assert captured["json"]["text"]["body"] == "*Total*\n- *Latte*: $5.00"
+
+
+def test_webhook_passes_contact_profile_name_to_service(client, monkeypatch):
+    from unittest.mock import AsyncMock
+    from whatsapp import router as wa_router
+
+    mock_process = AsyncMock()
+    monkeypatch.setattr(wa_router.service, "process_incoming_message", mock_process)
+
+    payload = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "12345",
+                "changes": [
+                    {
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "metadata": {
+                                "display_phone_number": "523311112222",
+                                "phone_number_id": "998877",
+                            },
+                            "contacts": [
+                                {
+                                    "wa_id": "5215512345678",
+                                    "profile": {"name": "María López"},
+                                }
+                            ],
+                            "messages": [
+                                {
+                                    "from": "5215512345678",
+                                    "id": "wamid.CONTACT_TEST",
+                                    "timestamp": "1700000001",
+                                    "type": "text",
+                                    "text": {"body": "Hola!"},
+                                }
+                            ],
+                        },
+                        "field": "messages",
+                    }
+                ],
+            }
+        ],
+    }
+
+    response = client.post("/webhook", json=payload)
+    assert response.status_code == 200
+    mock_process.assert_awaited_once()
+    call_args = mock_process.await_args.args
+    assert call_args[1] == "998877"
+    assert call_args[2] == "523311112222"
+    assert call_args[3] == "María López"
+
+
+@pytest.mark.anyio
+async def test_adk_client_sends_customer_phone_and_name_in_state_delta(monkeypatch):
+    import httpx
+
+    captured_payloads = []
+
+    class MockResponse:
+        def __init__(self, status_code: int, json_data):
+            self.status_code = status_code
+            self._json = json_data
+            self.text = ""
+
+        def json(self):
+            return self._json
+
+    async def mock_get(self, url, headers=None):
+        return MockResponse(200, [{"id": "sess_1"}])
+
+    async def mock_post(self, url, json=None, headers=None):
+        captured_payloads.append(json)
+        return MockResponse(200, [{"content": {"parts": [{"text": "Hola María!"}]}}])
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    adk = AdkAgentClient(base_url="http://localhost:8000", app_name="app")
+    reply = await adk.send_message(
+        phone_number="525512345678",
+        text="Hola",
+        business_phone_number_id="998877",
+        business_display_phone="+52 33 1111 2222",
+        customer_name="María López",
+    )
+
+    assert reply == "Hola María!"
+    assert len(captured_payloads) == 1
+    state_delta = captured_payloads[0]["state_delta"]
+    assert state_delta["customer_phone"] == "525512345678"
+    assert state_delta["customer_name"] == "María López"
+    assert state_delta["whatsapp_phone_number_id"] == "998877"
+    assert state_delta["whatsapp_display_phone"] == "523311112222"
+
 
 
 

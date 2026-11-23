@@ -94,10 +94,16 @@ class Settings:
     ADK_API_URL: str = (
         os.getenv("ADK_API_URL")
         or os.getenv("AGENT_RUNTIME_API_URL")
-        or "http://localhost:8000"
+        or "http://localhost:8080"
     ).rstrip("/")
-    ADK_APP_NAME: str = os.getenv("ADK_APP_NAME", "chat_assistant")
+    ADK_APP_NAME: str = os.getenv("ADK_APP_NAME", "app")
     ADK_USER_PREFIX: str = os.getenv("ADK_USER_PREFIX", "wa_")
+
+    # Default business tenant context for WhatsApp channel
+    DEFAULT_BUSINESS_ID: str = os.getenv(
+        "DEFAULT_BUSINESS_ID", "00000000-0000-0000-0000-000000000001"
+    )
+    DEFAULT_USER_ID: str = os.getenv("DEFAULT_USER_ID", "usr_demo_business")
 
     # Optional GCP service account credentials for remote agent runtime
     GCP_SA_KEY_JSON: str = os.getenv("GCP_SA_KEY_JSON", "")

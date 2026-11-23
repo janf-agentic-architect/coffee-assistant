@@ -28,10 +28,18 @@ class UpstashRateLimitPlugin(BasePlugin):
         window_seconds: int = 86400,
         url: str | None = None,
         token: str | None = None,
+        enabled: bool = True,
     ):
         super().__init__(name=name)
         self.max_requests = max_requests
         self.window_seconds = window_seconds
+        self.enabled = enabled
+
+        if not self.enabled:
+            self.redis = None
+            self._in_memory_requests: dict[str, list[float]] = defaultdict(list)
+            logger.info("UpstashRateLimitPlugin is disabled (rate limiting bypassed).")
+            return
 
         redis_url = url or os.getenv("UPSTASH_REDIS_REST_URL")
         redis_token = token or os.getenv("UPSTASH_REDIS_REST_TOKEN")
@@ -50,6 +58,9 @@ class UpstashRateLimitPlugin(BasePlugin):
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> LlmResponse | None:
+        if not self.enabled:
+            return None
+
         user_id = callback_context.session.user_id or "anonymous"
 
         if self.redis is not None:

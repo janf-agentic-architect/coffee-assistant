@@ -1,20 +1,44 @@
 import 'dotenv/config'
-import { getDb, coffeeOrders, orderItems, products, customers } from './index'
+import {
+  getDb,
+  ensureMultiTenantSchema,
+  businesses,
+  coffeeOrders,
+  orderItems,
+  products,
+  customers,
+} from './index'
+
+export const DEFAULT_DEMO_BUSINESS_ID = '00000000-0000-0000-0000-000000000001'
+export const DEFAULT_DEMO_OWNER_UID = 'usr_demo_business'
 
 async function seed() {
   console.log('🌱 Seeding database...')
   const db = getDb()
+  await ensureMultiTenantSchema(db)
 
   // Clear existing data in dependency order
   await db.delete(orderItems)
   await db.delete(coffeeOrders)
   await db.delete(customers)
   await db.delete(products)
+  await db.delete(businesses)
+
+  const [demoBusiness] = await db
+    .insert(businesses)
+    .values({
+      id: DEFAULT_DEMO_BUSINESS_ID,
+      ownerUserId: DEFAULT_DEMO_OWNER_UID,
+      name: 'The Cloud Cafe',
+    })
+    .returning()
 
   const insertedProducts = await db
     .insert(products)
     .values([
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Espresso',
         category: 'Café Caliente',
         price: '3.00',
@@ -22,6 +46,8 @@ async function seed() {
         available: true,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Espresso Doble',
         category: 'Café Caliente',
         price: '3.75',
@@ -29,6 +55,8 @@ async function seed() {
         available: true,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Flat White',
         category: 'Café Caliente',
         price: '4.50',
@@ -36,6 +64,8 @@ async function seed() {
         available: true,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Cappuccino Vainilla',
         category: 'Especialidades',
         price: '4.75',
@@ -43,6 +73,8 @@ async function seed() {
         available: true,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Latte Caramelo',
         category: 'Especialidades',
         price: '5.00',
@@ -50,6 +82,8 @@ async function seed() {
         available: true,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Cold Brew',
         category: 'Café Frío',
         price: '4.50',
@@ -57,6 +91,8 @@ async function seed() {
         available: true,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Matcha Latte',
         category: 'Sin Café',
         price: '5.25',
@@ -64,6 +100,8 @@ async function seed() {
         available: true,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Croissant de Almendras',
         category: 'Panadería',
         price: '3.80',
@@ -79,6 +117,8 @@ async function seed() {
     .insert(customers)
     .values([
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Carlos Mendoza',
         email: 'carlos.mendoza@email.com',
         phone: '+52 55 1234 5678',
@@ -86,6 +126,8 @@ async function seed() {
         loyaltyPoints: 120,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Sofía Gómez',
         email: 'sofia.gomez@email.com',
         phone: '+52 55 8765 4321',
@@ -93,6 +135,8 @@ async function seed() {
         loyaltyPoints: 245,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Alejandro Pérez',
         email: 'alejandro.perez@email.com',
         phone: '+52 55 3456 7890',
@@ -100,6 +144,8 @@ async function seed() {
         loyaltyPoints: 80,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Valeria Ramos',
         email: 'valeria.ramos@email.com',
         phone: '+52 55 9012 3456',
@@ -107,6 +153,8 @@ async function seed() {
         loyaltyPoints: 310,
       },
       {
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         name: 'Martín Silva',
         email: 'martin.silva@email.com',
         phone: '+52 55 6543 2109',
@@ -171,6 +219,8 @@ async function seed() {
     const [createdOrder] = await db
       .insert(coffeeOrders)
       .values({
+        businessId: demoBusiness.id,
+        userId: demoBusiness.ownerUserId,
         customerId: cust?.id ?? null,
         customerName: sOrder.customerName,
         status: sOrder.status,

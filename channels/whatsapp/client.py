@@ -3,6 +3,7 @@ from typing import Any, Optional, Tuple
 import httpx
 
 from .config import settings
+from .formatting import markdown_to_whatsapp
 
 logger = logging.getLogger("whatsapp.client")
 
@@ -133,6 +134,7 @@ class WhatsAppCloudApiClient:
             return {"warning": "WhatsApp credentials not configured"}
 
         clean_to = self.normalize_phone_number(to)
+        formatted_text = markdown_to_whatsapp(text)
         logger.info("Sending WhatsApp text message to: %s (original: %s, API version: %s)", clean_to, to, self.api_version)
 
         url = f"{self.base_url}/{phone_number_id}/messages"
@@ -143,7 +145,7 @@ class WhatsAppCloudApiClient:
             "type": "text",
             "text": {
                 "preview_url": False,
-                "body": text,
+                "body": formatted_text,
             },
         }
 
