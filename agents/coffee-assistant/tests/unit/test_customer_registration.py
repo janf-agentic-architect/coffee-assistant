@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app import agent as agent_module
+from app import callbacks as callbacks_module
 
 
 class _FakeToolboxClient:
@@ -44,13 +44,13 @@ async def test_register_whatsapp_customer_upserts_once_and_populates_state(monke
         )
 
     monkeypatch.setattr(
-        agent_module,
+        callbacks_module,
         "ToolboxClient",
         lambda url: _FakeToolboxClient(fake_upsert, calls),
     )
 
     state = {
-        "business_id": agent_module.DEFAULT_BUSINESS_ID,
+        "business_id": callbacks_module.DEFAULT_BUSINESS_ID,
         "whatsapp_phone_number_id": "998877",
         "whatsapp_display_phone": "523311112222",
         "customer_phone": "525512345678",
@@ -58,7 +58,7 @@ async def test_register_whatsapp_customer_upserts_once_and_populates_state(monke
     }
     ctx = SimpleNamespace(state=state)
 
-    result = await agent_module.register_whatsapp_customer(ctx)
+    result = await callbacks_module.register_whatsapp_customer(ctx)
     assert result is None
     assert state["customer_id"] == "cust-uuid-1"
     assert state["customer_name"] == "María López"
@@ -68,17 +68,17 @@ async def test_register_whatsapp_customer_upserts_once_and_populates_state(monke
     assert len([c for c in calls if c[0] == "invoke"]) == 1
 
     # Second call in same session should be a no-op
-    await agent_module.register_whatsapp_customer(ctx)
+    await callbacks_module.register_whatsapp_customer(ctx)
     assert len([c for c in calls if c[0] == "invoke"]) == 1
 
 
 @pytest.mark.asyncio
 async def test_register_whatsapp_customer_skips_without_phone(monkeypatch):
     mock_client = AsyncMock()
-    monkeypatch.setattr(agent_module, "ToolboxClient", mock_client)
+    monkeypatch.setattr(callbacks_module, "ToolboxClient", mock_client)
 
-    ctx = SimpleNamespace(state={"business_id": agent_module.DEFAULT_BUSINESS_ID})
-    result = await agent_module.register_whatsapp_customer(ctx)
+    ctx = SimpleNamespace(state={"business_id": callbacks_module.DEFAULT_BUSINESS_ID})
+    result = await callbacks_module.register_whatsapp_customer(ctx)
     assert result is None
     mock_client.assert_not_called()
 
@@ -88,14 +88,14 @@ async def test_register_whatsapp_customer_handles_toolbox_error_gracefully(monke
     def failing_client(url):
         raise RuntimeError("toolbox unavailable")
 
-    monkeypatch.setattr(agent_module, "ToolboxClient", failing_client)
+    monkeypatch.setattr(callbacks_module, "ToolboxClient", failing_client)
 
     state = {
-        "business_id": agent_module.DEFAULT_BUSINESS_ID,
+        "business_id": callbacks_module.DEFAULT_BUSINESS_ID,
         "customer_phone": "525512345678",
         "customer_name": "Carlos",
     }
     ctx = SimpleNamespace(state=state)
-    result = await agent_module.register_whatsapp_customer(ctx)
+    result = await callbacks_module.register_whatsapp_customer(ctx)
     assert result is None
     assert "whatsapp_customer_registered" not in state
