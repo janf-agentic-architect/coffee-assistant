@@ -196,7 +196,21 @@ Ensure you have the following tools installed and configured:
 
 ## 🚀 Quick Start (Local Development)
 
-### 1. Run the Local Database (PostgreSQL + Drizzle)
+### All-in-One Local Stack (Recommended)
+
+Start **PostgreSQL** (ephemeral Docker container + automatic `db:push` & `db:seed`), **MCP Toolbox** (`http://127.0.0.1:5000`), **Agent FastAPI** (`http://localhost:8080`), and the **Web Dashboard** in a single command:
+
+```bash
+make dev-all
+```
+> Pressing `Ctrl+C` cleanly stops all processes and removes the ephemeral PostgreSQL container.
+> If you also want to test WhatsApp locally, run `make dev-whatsapp` in a second terminal.
+
+---
+
+### Or Run Each Service Individually
+
+#### 1. Run the Local Database (PostgreSQL + Drizzle)
 
 Start an ephemeral PostgreSQL container using Docker. Once PostgreSQL is ready, it automatically runs `db:push` and `db:seed`:
 
@@ -445,6 +459,7 @@ Or step-by-step:
 
 | Command | Category | Description |
 |---------|----------|-------------|
+| `make dev-all` | Local Dev | Quick start: run Postgres (Docker + push/seed), MCP Toolbox (5000), Agent API (8080), and Web UI together |
 | `make dev` | Local Dev | Quick start: run Agent API (8080) + Web Dashboard together |
 | `make dev-agent` | Local Dev | Run local agent playground with `agents-cli` |
 | `make dev-agent-api` | Local Dev | Run only local agent FastAPI server on port 8080 |

@@ -45,7 +45,7 @@ endif
 WHATSAPP_SERVICE_NAME := $(PROJECT_NAME)-whatsapp
 WHATSAPP_IMAGE_TAG = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
 
-.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets install-toolbox deploy-toolbox build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-toolbox dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
+.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets install-toolbox deploy-toolbox build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-all dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-toolbox dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -174,7 +174,43 @@ deploy-status: ## Check the status of an ongoing deployment in Agent Runtime
 
 deploy-all: infra db-neon-push deploy-agent deploy-web ## Provision infra, push Neon schema, and deploy agent & web (run deploy-whatsapp optionally)
 
-dev: ## Quick start: Run Agent API (8080) + Web Dashboard (3000) together
+dev-all: install-toolbox ## Quick start: Run Postgres (Docker + push/seed), MCP Toolbox (5000), Agent API (8080), and Web UI together
+	@echo "==> Starting full local stack (PostgreSQL, MCP Toolbox, Agent API, Web UI)..."
+	@[ -d $(WEB_DIR)/node_modules ] || (cd $(WEB_DIR) && pnpm install)
+	@docker rm -f $(POSTGRES_CONTAINER_NAME) 2>/dev/null || true
+	@docker run -d --rm --name $(POSTGRES_CONTAINER_NAME) \
+		-e POSTGRES_USER=$(POSTGRES_USER) \
+		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		-e POSTGRES_DB=$(POSTGRES_DB) \
+		-v $(POSTGRES_INIT_DIR):/docker-entrypoint-initdb.d:ro \
+		-p $(POSTGRES_PORT):5432 \
+		$(POSTGRES_IMAGE) >/dev/null
+	@TOOLBOX_PID=""; AGENT_PID=""; \
+	cleanup() { \
+		echo ""; \
+		echo "==> Stopping local stack..."; \
+		[ -n "$$AGENT_PID" ] && kill $$AGENT_PID 2>/dev/null || true; \
+		[ -n "$$TOOLBOX_PID" ] && kill $$TOOLBOX_PID 2>/dev/null || true; \
+		docker stop $(POSTGRES_CONTAINER_NAME) >/dev/null 2>&1 || true; \
+	}; \
+	trap cleanup INT TERM EXIT; \
+	echo "==> Waiting for PostgreSQL on port $(POSTGRES_PORT)..."; \
+	until docker exec $(POSTGRES_CONTAINER_NAME) pg_isready -h localhost -U $(POSTGRES_USER) -d $(POSTGRES_DB) >/dev/null 2>&1; do \
+		sleep 1; \
+	done; \
+	sleep 1; \
+	echo "==> PostgreSQL ready! Pushing schema & seeding..."; \
+	(cd $(WEB_DIR) && pnpm run db:push && pnpm run db:seed); \
+	echo "==> Starting MCP Toolbox on http://127.0.0.1:5000..."; \
+	(cd $(TOOLBOX_DIR) && ./toolbox --config "tools.yaml") & \
+	TOOLBOX_PID=$$!; \
+	echo "==> Starting Agent API on http://localhost:8080..."; \
+	(cd $(AGENT_DIR) && uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload) & \
+	AGENT_PID=$$!; \
+	echo "==> Starting Web UI (Press Ctrl+C to stop all services)..."; \
+	cd $(WEB_DIR) && pnpm dev
+
+dev: ## Quick start: Run Agent API (8080) + Web Dashboard together
 	@echo "==> Starting Agent API (port 8080) and Web Dashboard (port 3000)..."
 	@(cd $(AGENT_DIR) && uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload) & \
 	AGENT_PID=$$!; \
