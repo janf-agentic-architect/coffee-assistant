@@ -72,6 +72,23 @@ resource "google_secret_manager_secret_version" "database_url_direct_val" {
   secret_data = local.neon_database_url_direct
 }
 
+# 5. Store Postgres Password in GCP Secret Manager (for MCP Toolbox Cloud Run)
+resource "google_secret_manager_secret" "postgres_password" {
+  secret_id = "postgres-password"
+  project   = local.project_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.services]
+}
+
+resource "google_secret_manager_secret_version" "postgres_password_val" {
+  secret      = google_secret_manager_secret.postgres_password.id
+  secret_data = neon_project.coffee_db.database_password
+}
+
 # Outputs
 output "neon_project_id" {
   description = "Neon Project ID"

@@ -27,3 +27,6 @@ agents/*/deployment_metadata.json.lock
 
 # System / IDEs
 .DS_Store
+
+# Local MCP Toolbox binary (downloaded locally for dev)
+mcp/mcp-toolbox/toolbox

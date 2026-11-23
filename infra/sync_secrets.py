@@ -29,6 +29,7 @@ def sync_secrets(env_file: str, project_id: str, output_file: str):
                 "GOOGLE_CLOUD_LOCATION",
                 "MODEL",
                 "RATE_LIMIT_ENABLED",
+                "TOOLBOX_URL",
             ]:
                 continue
 

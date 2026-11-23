@@ -1,12 +1,13 @@
 INFRA_DIR := infra
 TF_VARS := vars/env.tfvars
 PROJECT_NAME ?= $(shell grep 'project_name' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || echo "coffee-assistant")
-PROJECT_ID = $(shell terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || grep 'project_id' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || echo "agentic-ai-path")
+PROJECT_ID = $(shell terraform -chdir=$(INFRA_DIR) output -raw project_id 2>/dev/null || grep 'project_id' $(INFRA_DIR)/vars/env.tfvars 2>/dev/null | cut -d '"' -f 2 || gcloud config get-value project 2>/dev/null)
 REGION := us-east1
 AGENT_DIR := agents/coffee-assistant
 WEB_DIR := web
 CHANNELS_DIR := channels
 TOOLBOX_DIR := mcp/mcp-toolbox
+TOOLBOX_VERSION ?= 1.18.0
 WHATSAPP_PORT := 8001
 
 # Ephemeral PostgreSQL configuration derived from PROJECT_NAME
@@ -44,7 +45,7 @@ endif
 WHATSAPP_SERVICE_NAME := $(PROJECT_NAME)-whatsapp
 WHATSAPP_IMAGE_TAG = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
 
-.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-toolbox dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
+.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets install-toolbox deploy-toolbox build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-toolbox dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -100,10 +101,27 @@ SECRETS_FILE := $(AGENT_DIR)/.secrets_args
 sync-secrets: ## Sync all variables from $(AGENT_DIR)/.env into GCP Secret Manager
 	@python3 $(INFRA_DIR)/sync_secrets.py $(AGENT_DIR)/.env $(PROJECT_ID) $(SECRETS_FILE)
 
+deploy-toolbox: ## Deploy or update MCP Toolbox (tools.yaml + Cloud Run) via Terraform
+	terraform -chdir=$(INFRA_DIR) apply -var-file="$(TF_VARS)" $(TF_EXTRA_ARGS) \
+		-target=google_secret_manager_secret_version.toolbox_tools_yaml_val \
+		-target=google_cloud_run_v2_service.toolbox
+
 deploy-agent: sync-metadata sync-secrets ## Package and deploy chat-assistant agent to Agent Runtime
-	@SECRETS_ARG=""; \
+	@SECRETS_VAL=""; \
 	if [ -f $(SECRETS_FILE) ] && [ -s $(SECRETS_FILE) ]; then \
-		SECRETS_ARG="--secrets $$(cat $(SECRETS_FILE))"; \
+		SECRETS_VAL="$$(cat $(SECRETS_FILE))"; \
+	fi; \
+	TOOLBOX_URI=$$(terraform -chdir=$(INFRA_DIR) output -raw toolbox_url 2>/dev/null || true); \
+	if [ -n "$$TOOLBOX_URI" ]; then \
+		if [ -n "$$SECRETS_VAL" ]; then \
+			SECRETS_VAL="$$SECRETS_VAL,TOOLBOX_URL=toolbox-url"; \
+		else \
+			SECRETS_VAL="TOOLBOX_URL=toolbox-url"; \
+		fi; \
+	fi; \
+	SECRETS_ARG=""; \
+	if [ -n "$$SECRETS_VAL" ]; then \
+		SECRETS_ARG="--secrets $$SECRETS_VAL"; \
 	fi; \
 	cd $(AGENT_DIR) && agents-cli deploy \
 		--project $(PROJECT_ID) \
@@ -154,7 +172,7 @@ subscribe-whatsapp-waba: ## Auto-discover Meta WABA, register Cloud Run Webhook 
 deploy-status: ## Check the status of an ongoing deployment in Agent Runtime
 	cd $(AGENT_DIR) && agents-cli deploy --status
 
-deploy-all: infra deploy-agent deploy-web deploy-whatsapp ## Provision infra and deploy agent, web, and WhatsApp
+deploy-all: infra db-neon-push deploy-agent deploy-web ## Provision infra, push Neon schema, and deploy agent & web (run deploy-whatsapp optionally)
 
 dev: ## Quick start: Run Agent API (8080) + Web Dashboard (3000) together
 	@echo "==> Starting Agent API (port 8080) and Web Dashboard (port 3000)..."
@@ -172,7 +190,21 @@ dev-agent-api: ## [Debug] Run only local agent FastAPI backend on port 8080
 dev-web: ## [Debug] Run only web/ development server
 	cd $(WEB_DIR) && pnpm dev
 
-dev-toolbox: ## Run local MCP Toolbox server with tools.yaml
+install-toolbox: ## Download official MCP Toolbox binary for local development
+	@if [ ! -x "$(TOOLBOX_DIR)/toolbox" ]; then \
+		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+		ARCH=$$(uname -m); \
+		case "$$ARCH" in \
+			x86_64) ARCH="amd64" ;; \
+			aarch64|arm64) ARCH="arm64" ;; \
+		esac; \
+		URL="https://storage.googleapis.com/genai-toolbox/v$(TOOLBOX_VERSION)/$$OS/$$ARCH/toolbox"; \
+		echo "Downloading MCP Toolbox v$(TOOLBOX_VERSION) ($$OS/$$ARCH)..."; \
+		curl -fsSL "$$URL" -o "$(TOOLBOX_DIR)/toolbox" && chmod +x "$(TOOLBOX_DIR)/toolbox"; \
+		echo "✓ Installed $(TOOLBOX_DIR)/toolbox"; \
+	fi
+
+dev-toolbox: install-toolbox ## Run local MCP Toolbox server with tools.yaml
 	cd $(TOOLBOX_DIR) && ./toolbox --config "tools.yaml"
 
 dev-db: ## Run an ephemeral PostgreSQL container with Docker, auto-run db-push & db-seed (stops and removes on Ctrl+C)
@@ -257,11 +289,24 @@ rename: ## Centralize and rename project across all services (usage: make rename
 	OLD_DIR="$(AGENT_DIR)"; \
 	OLD_NAME=$$(basename "$$OLD_DIR"); \
 	OLD_SNAKE=$$(echo "$$OLD_NAME" | tr '-' '_'); \
+	OLD_DB_NAME="$${OLD_SNAKE}_db"; \
 	NEW_DIR="agents/$$NEW_NAME"; \
 	echo "==> Centralizing and renaming project from '$$OLD_NAME' to '$$NEW_NAME'..."; \
-	sed -i "s/project_name = \".*\"/project_name = \"$$NEW_NAME\"/" $(INFRA_DIR)/vars/env.tfvars; \
+	if [ -f "$(INFRA_DIR)/vars/env.tfvars" ]; then \
+		sed -i "s/project_name = \".*\"/project_name = \"$$NEW_NAME\"/" $(INFRA_DIR)/vars/env.tfvars; \
+	fi; \
+	if [ -f "$(INFRA_DIR)/vars/env.tfvars.example" ]; then \
+		sed -i "s/project_name = \".*\"/project_name = \"$$NEW_NAME\"/" $(INFRA_DIR)/vars/env.tfvars.example; \
+	fi; \
 	sed -i "s/default     = \"$$OLD_NAME\"/default     = \"$$NEW_NAME\"/" $(INFRA_DIR)/variables.tf; \
 	sed -i "s/service_name=\\\"$$OLD_NAME\\\"/service_name=\\\"$$NEW_NAME\\\"/" $(INFRA_DIR)/variables.tf; \
+	sed -i "s/echo \"$$OLD_NAME\"/echo \"$$NEW_NAME\"/" Makefile; \
+	if [ -f "$(TOOLBOX_DIR)/tools.yaml" ]; then \
+		sed -i "s/POSTGRES_DB:$$OLD_DB_NAME/POSTGRES_DB:$$NEW_DB_NAME/" $(TOOLBOX_DIR)/tools.yaml; \
+	fi; \
+	if [ -f "$(CHANNELS_DIR)/whatsapp/config.py" ]; then \
+		sed -i "s/$${OLD_SNAKE}_verify_token/$${SNAKE_NAME}_verify_token/" $(CHANNELS_DIR)/whatsapp/config.py; \
+	fi; \
 	sed -i "s/^name: .*/name: $$NEW_NAME/" "$$OLD_DIR/agents-cli-manifest.yaml" 2>/dev/null || true; \
 	sed -i "s/root_agent_name: .*/root_agent_name: $$SNAKE_NAME/" "$$OLD_DIR/agents-cli-manifest.yaml" 2>/dev/null || true; \
 	sed -i "s/^name = \".*\"/name = \"$$NEW_NAME\"/" "$$OLD_DIR/pyproject.toml" 2>/dev/null || true; \
@@ -279,12 +324,17 @@ rename: ## Centralize and rename project across all services (usage: make rename
 		mv "$$OLD_DIR" "$$NEW_DIR"; \
 		sed -i "s|^AGENT_DIR := .*|AGENT_DIR := $$NEW_DIR|" Makefile; \
 	fi; \
-	rm -f "$$NEW_DIR/deployment_metadata.json"; \
+	rm -f "$$NEW_DIR/deployment_metadata.json" "$$NEW_DIR/deployment_metadata.json.lock"; \
+	if command -v uv >/dev/null 2>&1; then \
+		echo "==> Syncing uv.lock in $$NEW_DIR..."; \
+		(cd "$$NEW_DIR" && uv lock); \
+	fi; \
 	echo "✓ Project name centralized to: '$$NEW_NAME'"; \
 	echo "  • Vertex AI Agent:    $$NEW_NAME ($$SNAKE_NAME)"; \
 	echo "  • Web Dashboard:      $$NEW_WEB_NAME"; \
 	echo "  • Neon Project:       $$NEW_NAME-db"; \
 	echo "  • Neon / Postgres DB: $$NEW_DB_NAME"; \
+	echo "  • MCP Toolbox:        $$NEW_NAME-toolbox"; \
 	echo "  • Upstash Redis:      $$NEW_NAME-redis"; \
 	echo "  • WhatsApp Webhook:   $$NEW_NAME-whatsapp"; \
-	echo "  • Service Accounts:   $$NEW_NAME-whatsapp-sa, $$NEW_NAME-web-caller"
+	echo "  • Service Accounts:   $$NEW_NAME-whatsapp-sa, $$NEW_NAME-toolbox-sa, $$NEW_NAME-web-caller"

@@ -99,3 +99,24 @@ async def test_register_whatsapp_customer_handles_toolbox_error_gracefully(monke
     result = await callbacks_module.register_whatsapp_customer(ctx)
     assert result is None
     assert "whatsapp_customer_registered" not in state
+
+
+def test_get_toolbox_auth_headers_local_vs_https(monkeypatch):
+    assert callbacks_module.get_toolbox_auth_headers("http://127.0.0.1:5000") == {}
+
+    called_args = []
+
+    def fake_fetch_id_token(_request, audience, bind_id_token=None):
+        called_args.append((audience, bind_id_token))
+        return "fake-oidc-token"
+
+    import google.oauth2.id_token as id_token_module
+
+    monkeypatch.setattr(id_token_module, "fetch_id_token", fake_fetch_id_token)
+
+    url = "https://coffee-assistant-toolbox-abc-ue.a.run.app"
+    headers = callbacks_module.get_toolbox_auth_headers(url)
+    assert "Authorization" in headers
+    assert callable(headers["Authorization"])
+    assert headers["Authorization"]() == "Bearer fake-oidc-token"
+    assert called_args == [(url, False)]

@@ -29,11 +29,32 @@ load_dotenv()
 
 logger = logging.getLogger("coffee_assistant.callbacks")
 
-TOOLBOX_URL = os.getenv("TOOLBOX_URL", "http://127.0.0.1:5000")
+TOOLBOX_URL = os.getenv("TOOLBOX_URL", "http://127.0.0.1:5000").strip().rstrip("/")
 DEFAULT_BUSINESS_ID = os.getenv(
     "DEFAULT_BUSINESS_ID", "00000000-0000-0000-0000-000000000001"
 )
 DEFAULT_USER_ID = os.getenv("DEFAULT_USER_ID", "usr_demo_business")
+
+
+def get_toolbox_auth_headers(server_url: str = TOOLBOX_URL) -> dict[str, Any]:
+    """Return Cloud Run IAM ID token Authorization header callable for HTTPS Toolbox URLs."""
+    audience = server_url.strip().rstrip("/")
+    if not audience.startswith("https://"):
+        return {}
+
+    from google.auth.transport.requests import Request as GoogleAuthRequest
+    from google.oauth2 import id_token
+
+    def _fetch_bearer_token() -> str:
+        # Agent Runtime uses AGENT_IDENTITY, where google-auth 2.62+ defaults to
+        # certificate-bound ID tokens. Cloud Run rejects bound tokens sent over
+        # standard TLS (aiohttp), so request an unbound ID token explicitly.
+        token = id_token.fetch_id_token(
+            GoogleAuthRequest(), audience, bind_id_token=False
+        )
+        return f"Bearer {token}"
+
+    return {"Authorization": _fetch_bearer_token}
 
 # ContextVars populated from session state (tool_context.state) before tool execution
 current_business_id: ContextVar[str] = ContextVar(
@@ -105,7 +126,9 @@ async def register_whatsapp_customer(
 
     customer_name = str(state.get("customer_name") or "").strip()
     try:
-        async with ToolboxClient(TOOLBOX_URL) as client:
+        client_headers = get_toolbox_auth_headers(TOOLBOX_URL)
+        client_kwargs = {"client_headers": client_headers} if client_headers else {}
+        async with ToolboxClient(TOOLBOX_URL, **client_kwargs) as client:
             upsert_tool = await client.load_tool("upsert-whatsapp-customer")
             raw_result = await upsert_tool(
                 business_id=effective_business_key,

@@ -6,6 +6,8 @@ port: ${POSTGRES_PORT:5432}
 database: ${POSTGRES_DB:coffee_assistant_db}
 user: ${POSTGRES_USER:postgres}
 password: ${POSTGRES_PASSWORD:postgres}
+queryParams:
+  sslmode: ${POSTGRES_SSLMODE:disable}
 ---
 kind: tool
 name: get-products-by-business

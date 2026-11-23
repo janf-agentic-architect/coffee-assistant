@@ -6,15 +6,16 @@ from dotenv import load_dotenv
 # Search and load .env files in order of precedence:
 # 1. channels/whatsapp/.env
 # 2. channels/.env
-# 3. agents/coffee-assistant/.env
+# 3. agents/*/.env
 # 4. root .env
 current_dir = Path(__file__).resolve().parent
 repo_root = current_dir.parent.parent
+agents_dir = repo_root / "agents"
+agent_env_paths = sorted(agents_dir.glob("*/.env")) if agents_dir.exists() else []
 search_paths = [
     current_dir / ".env",
     current_dir.parent / ".env",
-    repo_root / "agents" / "coffee-assistant" / ".env",
-    repo_root / "agents" / "chat-assistant" / ".env",
+    *agent_env_paths,
     repo_root / ".env",
 ]
 if os.getenv("WHATSAPP_IGNORE_DOTENV", "").lower() not in ("1", "true", "yes"):

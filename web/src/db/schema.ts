@@ -1,15 +1,24 @@
-import { pgTable, text, timestamp, uuid, integer, numeric, boolean } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { pgTable, text, timestamp, uuid, integer, numeric, boolean, uniqueIndex } from 'drizzle-orm/pg-core'
 
-export const businesses = pgTable('businesses', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  ownerUserId: text('owner_user_id').notNull(),
-  name: text('name').notNull().default('Mi Cafetería'),
-  description: text('description'),
-  assistantInstructions: text('assistant_instructions'),
-  whatsappPhoneNumberId: text('whatsapp_phone_number_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const businesses = pgTable(
+  'businesses',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ownerUserId: text('owner_user_id').notNull(),
+    name: text('name').notNull().default('Mi Cafetería'),
+    description: text('description'),
+    assistantInstructions: text('assistant_instructions'),
+    whatsappPhoneNumberId: text('whatsapp_phone_number_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('businesses_whatsapp_phone_number_id_unique')
+      .on(table.whatsappPhoneNumberId)
+      .where(sql`${table.whatsappPhoneNumberId} IS NOT NULL AND ${table.whatsappPhoneNumberId} <> ''`),
+  ]
+)
 
 export const products = pgTable('products', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -24,18 +33,28 @@ export const products = pgTable('products', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
-export const customers = pgTable('customers', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  businessId: uuid('business_id').references(() => businesses.id, { onDelete: 'cascade' }),
-  userId: text('user_id'),
-  name: text('name').notNull(),
-  email: text('email'),
-  phone: text('phone'),
-  favoriteDrink: text('favorite_drink'),
-  loyaltyPoints: integer('loyalty_points').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const customers = pgTable(
+  'customers',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    businessId: uuid('business_id').references(() => businesses.id, { onDelete: 'cascade' }),
+    userId: text('user_id'),
+    name: text('name').notNull(),
+    email: text('email'),
+    phone: text('phone'),
+    favoriteDrink: text('favorite_drink'),
+    loyaltyPoints: integer('loyalty_points').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('customers_business_phone_unique')
+      .on(table.businessId, sql`regexp_replace(COALESCE(${table.phone}, ''), '[^0-9]', '', 'g')`)
+      .where(
+        sql`${table.businessId} IS NOT NULL AND ${table.phone} IS NOT NULL AND regexp_replace(COALESCE(${table.phone}, ''), '[^0-9]', '', 'g') <> ''`
+      ),
+  ]
+)
 
 export const coffeeOrders = pgTable('coffee_orders', {
   id: uuid('id').defaultRandom().primaryKey(),

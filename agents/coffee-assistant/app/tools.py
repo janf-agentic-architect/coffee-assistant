@@ -19,6 +19,7 @@ from app.callbacks import (
     TOOLBOX_URL,
     current_business_id,
     current_whatsapp_display_phone,
+    get_toolbox_auth_headers,
 )
 
 toolbox_tools = ToolboxToolset(
@@ -28,6 +29,7 @@ toolbox_tools = ToolboxToolset(
         "business_id": lambda: current_business_id.get(),
         "whatsapp_display_phone": lambda: current_whatsapp_display_phone.get(),
     },
+    additional_headers=get_toolbox_auth_headers(TOOLBOX_URL) or None,
 )
 
 CAFE_MENU = {
