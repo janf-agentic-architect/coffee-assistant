@@ -32,7 +32,7 @@ export async function ensureMultiTenantSchema(db: ReturnType<typeof getDb>) {
       CREATE TABLE IF NOT EXISTS "businesses" (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
         "owner_user_id" text NOT NULL,
-        "name" text DEFAULT 'Mi Cafetería' NOT NULL,
+        "name" text DEFAULT 'My Coffee Shop' NOT NULL,
         "description" text,
         "assistant_instructions" text,
         "whatsapp_phone_number_id" text,
@@ -84,7 +84,7 @@ export async function getOrCreateBusinessForUser(
     .insert(schema.businesses)
     .values({
       ownerUserId: user.uid,
-      name: user.displayName ? `Cafetería de ${user.displayName}` : 'Mi Cafetería',
+      name: user.displayName ? `${user.displayName}'s Coffee Shop` : 'My Coffee Shop',
     })
     .returning()
 

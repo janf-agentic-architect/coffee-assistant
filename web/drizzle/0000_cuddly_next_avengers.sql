@@ -33,7 +33,7 @@ CREATE TABLE "order_items" (
 CREATE TABLE "products" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" text NOT NULL,
-	"category" text DEFAULT 'Café Caliente' NOT NULL,
+	"category" text DEFAULT 'Hot Coffee' NOT NULL,
 	"price" numeric(10, 2) NOT NULL,
 	"description" text,
 	"available" boolean DEFAULT true NOT NULL,

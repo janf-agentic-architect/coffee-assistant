@@ -160,7 +160,7 @@ export async function verifyIdentityToken(
       return {
         uid: String(verified.sub || verified.user_id || ''),
         email: String(verified.email || ''),
-        displayName: String(verified.name || verified.email || 'Usuario'),
+        displayName: String(verified.name || verified.email || 'User'),
         provider: 'local-dev',
       }
     }
@@ -198,7 +198,7 @@ export async function verifyIdentityToken(
 
       const uid = String(payloadJson.user_id || payloadJson.sub || '')
       const email = String(payloadJson.email || '')
-      const displayName = String(payloadJson.name || email.split('@')[0] || 'Usuario')
+      const displayName = String(payloadJson.name || email.split('@')[0] || 'User')
       return {
         uid,
         email,
@@ -216,22 +216,22 @@ export async function verifyIdentityToken(
 function mapIdentityError(code?: string): string {
   switch (code) {
     case 'EMAIL_EXISTS':
-      return 'Ya existe una cuenta registrada con este correo electrónico.'
+      return 'An account with this email address already exists.'
     case 'INVALID_EMAIL':
-      return 'El formato del correo electrónico no es válido.'
+      return 'The email address format is invalid.'
     case 'WEAK_PASSWORD':
     case 'WEAK_PASSWORD : Password should be at least 6 characters':
-      return 'La contraseña debe tener al menos 6 caracteres.'
+      return 'Password must be at least 6 characters long.'
     case 'EMAIL_NOT_FOUND':
     case 'INVALID_LOGIN_CREDENTIALS':
     case 'INVALID_PASSWORD':
-      return 'Usuario o contraseña incorrectos.'
+      return 'Invalid email or password.'
     case 'USER_DISABLED':
-      return 'Esta cuenta de usuario ha sido deshabilitada.'
+      return 'This user account has been disabled.'
     case 'TOO_MANY_ATTEMPTS_TRY_LATER':
-      return 'Demasiados intentos fallidos. Intenta nuevamente más tarde.'
+      return 'Too many failed attempts. Please try again later.'
     default:
-      return code ? `Error de autenticación (${code})` : 'Error de autenticación'
+      return code ? `Authentication error (${code})` : 'Authentication error'
   }
 }
 
@@ -249,7 +249,7 @@ export async function registerWithEmailPassword(params: {
   const cleanName = (params.displayName || cleanEmail.split('@')[0]).trim()
 
   if (params.password.length < 6) {
-    throw new Error('La contraseña debe tener al menos 6 caracteres.')
+    throw new Error('Password must be at least 6 characters long.')
   }
 
   // If GCP_IDENTITY_API_KEY is configured, use Google Cloud Identity Platform REST API
@@ -316,7 +316,7 @@ export async function registerWithEmailPassword(params: {
 
   // Local Dev Fallback when GCP_IDENTITY_API_KEY is not set yet
   if (localDevUsers.has(cleanEmail)) {
-    throw new Error('Ya existe una cuenta registrada con este correo electrónico.')
+    throw new Error('An account with this email address already exists.')
   }
   const passwordHash = await sha256Hex(params.password)
   const uidHash = (await sha256Hex(cleanEmail)).slice(0, 16)
@@ -395,7 +395,7 @@ export async function signInWithEmailPassword(params: {
     }
 
     const displayName =
-      signInData.displayName || (signInData.email || cleanEmail).split('@')[0] || 'Usuario'
+      signInData.displayName || (signInData.email || cleanEmail).split('@')[0] || 'User'
 
     return {
       user: {
@@ -414,7 +414,7 @@ export async function signInWithEmailPassword(params: {
   const existing = localDevUsers.get(cleanEmail)
   const passwordHash = await sha256Hex(params.password)
   if (!existing || existing.passwordHash !== passwordHash) {
-    throw new Error('Usuario o contraseña incorrectos.')
+    throw new Error('Invalid email or password.')
   }
 
   const nowSec = Math.floor(Date.now() / 1000)

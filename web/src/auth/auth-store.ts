@@ -109,7 +109,7 @@ function loadOrInitSessions(ownerKey: string, isGuest: boolean): {
   if (typeof window === 'undefined') {
     const defaultSession: WebTestSession = {
       id: 's1',
-      label: 'Sesión Web #1',
+      label: 'Web Session #1',
       adkUserId: canonicalAdkUserId,
       createdAt: new Date().toISOString(),
     }
@@ -153,7 +153,7 @@ function loadOrInitSessions(ownerKey: string, isGuest: boolean): {
   const sId = `s_${generateShortId()}`
   const initialSession: WebTestSession = {
     id: sId,
-    label: 'Sesión Web #1',
+    label: 'Web Session #1',
     adkUserId: canonicalAdkUserId,
     createdAt: new Date().toISOString(),
   }
@@ -383,7 +383,7 @@ export const authStore = {
     const nextNumber = state.sessions.length + 1
     const newSession: WebTestSession = {
       id: sId,
-      label: customLabel?.trim() || `Sesión Web #${nextNumber}`,
+      label: customLabel?.trim() || `Web Session #${nextNumber}`,
       adkUserId: state.activeAdkUserId || buildAdkUserId(ownerKey, state.isGuest),
       createdAt: new Date().toISOString(),
     }
@@ -431,7 +431,7 @@ export const authStore = {
     const sId = `s_${generateShortId()}`
     const initialSession: WebTestSession = {
       id: sId,
-      label: 'Sesión Web #1',
+      label: 'Web Session #1',
       adkUserId: newAdkUserId,
       createdAt: new Date().toISOString(),
     }

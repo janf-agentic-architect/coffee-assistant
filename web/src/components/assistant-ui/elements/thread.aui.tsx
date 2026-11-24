@@ -91,13 +91,13 @@ function UserMessage() {
                 <div className="aui-message-image-header">
                   <span className="aui-message-image-icon">🖼️</span>
                   <span className="aui-message-image-name">
-                    {filename || "Imagen adjunta"}
+                    {filename || "Attached image"}
                   </span>
                 </div>
                 <div className="aui-message-image-wrapper">
                   <img
                     src={imgSrc}
-                    alt={filename || "Imagen enviada"}
+                    alt={filename || "Sent image"}
                     className="aui-message-img"
                   />
                 </div>
@@ -106,7 +106,7 @@ function UserMessage() {
           }
 
           if (part.type === "file") {
-            const filename = (part as any).filename || "Archivo";
+            const filename = (part as any).filename || "File";
             const isAudio =
               part.mimeType?.startsWith("audio/") ||
               /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(filename);

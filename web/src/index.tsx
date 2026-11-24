@@ -67,7 +67,7 @@ app.post('/api/auth/register', async (c) => {
     const displayName = body.displayName ? String(body.displayName).trim() : undefined
 
     if (!email || !password) {
-      return c.json({ error: 'Debes proporcionar correo electrónico y contraseña.' }, 400)
+      return c.json({ error: 'You must provide an email and password.' }, 400)
     }
 
     const result = await registerWithEmailPassword({
@@ -95,7 +95,7 @@ app.post('/api/auth/register', async (c) => {
       201
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Error al registrar usuario'
+    const message = error instanceof Error ? error.message : 'Error registering user'
     return c.json({ error: message }, 400)
   }
 })
@@ -107,7 +107,7 @@ app.post('/api/auth/login', async (c) => {
     const password = String(body.password || '')
 
     if (!email || !password) {
-      return c.json({ error: 'Debes proporcionar correo electrónico y contraseña.' }, 400)
+      return c.json({ error: 'You must provide an email and password.' }, 400)
     }
 
     const result = await signInWithEmailPassword({
@@ -134,7 +134,7 @@ app.post('/api/auth/login', async (c) => {
       200
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Error al iniciar sesión'
+    const message = error instanceof Error ? error.message : 'Error signing in'
     return c.json({ error: message }, 401)
   }
 })
@@ -181,7 +181,7 @@ function isUniqueConstraintError(error: unknown): boolean {
 app.get('/api/businesses', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const db = getDb(c.env?.DATABASE_URL)
     const list = await listBusinessesForUser(db, user)
@@ -195,12 +195,12 @@ app.get('/api/businesses', async (c) => {
 app.post('/api/businesses', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const body = await c.req.json()
     const name = String(body.name || '').trim()
     if (!name) {
-      return c.json({ error: 'El nombre del negocio es obligatorio.' }, 400)
+      return c.json({ error: 'Business name is required.' }, 400)
     }
 
     const description =
@@ -234,7 +234,7 @@ app.post('/api/businesses', async (c) => {
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       return c.json(
-        { error: 'Ese WhatsApp Phone Number ID ya está asignado a otro negocio.' },
+        { error: 'That WhatsApp Phone Number ID is already assigned to another business.' },
         409
       )
     }
@@ -246,7 +246,7 @@ app.post('/api/businesses', async (c) => {
 app.patch('/api/businesses/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const body = await c.req.json()
@@ -260,7 +260,7 @@ app.patch('/api/businesses/:id', async (c) => {
     if (body.name !== undefined) {
       const trimmedName = String(body.name).trim()
       if (!trimmedName) {
-        return c.json({ error: 'El nombre del negocio no puede estar vacío.' }, 400)
+        return c.json({ error: 'Business name cannot be empty.' }, 400)
       }
       updatePayload.name = trimmedName
     }
@@ -282,12 +282,12 @@ app.patch('/api/businesses/:id', async (c) => {
       .where(and(eq(businesses.id, id), eq(businesses.ownerUserId, user.uid)))
       .returning()
 
-    if (!updated) return c.json({ error: 'Negocio no encontrado' }, 404)
+    if (!updated) return c.json({ error: 'Business not found' }, 404)
     return c.json(updated)
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       return c.json(
-        { error: 'Ese WhatsApp Phone Number ID ya está asignado a otro negocio.' },
+        { error: 'That WhatsApp Phone Number ID is already assigned to another business.' },
         409
       )
     }
@@ -299,7 +299,7 @@ app.patch('/api/businesses/:id', async (c) => {
 app.delete('/api/businesses/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
@@ -307,7 +307,7 @@ app.delete('/api/businesses/:id', async (c) => {
 
     if (userBusinesses.length <= 1) {
       return c.json(
-        { error: 'Debes mantener al menos un negocio activo en tu cuenta.' },
+        { error: 'You must keep at least one active business in your account.' },
         400
       )
     }
@@ -317,7 +317,7 @@ app.delete('/api/businesses/:id', async (c) => {
       .where(and(eq(businesses.id, id), eq(businesses.ownerUserId, user.uid)))
       .returning()
 
-    if (!deleted) return c.json({ error: 'Negocio no encontrado' }, 404)
+    if (!deleted) return c.json({ error: 'Business not found' }, 404)
     return c.json({ success: true, deleted })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -328,7 +328,7 @@ app.delete('/api/businesses/:id', async (c) => {
 app.get('/api/business', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const db = getDb(c.env?.DATABASE_URL)
     const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
@@ -342,7 +342,7 @@ app.get('/api/business', async (c) => {
 app.patch('/api/business', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
@@ -370,7 +370,7 @@ app.patch('/api/business', async (c) => {
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       return c.json(
-        { error: 'Ese WhatsApp Phone Number ID ya está asignado a otro negocio.' },
+        { error: 'That WhatsApp Phone Number ID is already assigned to another business.' },
         409
       )
     }
@@ -400,7 +400,7 @@ app.all('/api/adk/*', async (c) => {
       const db = getDb(c.env?.DATABASE_URL)
       const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
       businessId = business.id
-      businessName = business.name || 'Mi Cafetería'
+      businessName = business.name || 'My Coffee Shop'
       businessDescription = business.description || ''
       businessInstructions = business.assistantInstructions || ''
     }
@@ -489,7 +489,7 @@ app.all('/api/adk/*', async (c) => {
 app.get('/api/orders', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const db = getDb(c.env?.DATABASE_URL)
     const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
@@ -530,7 +530,7 @@ app.get('/api/orders', async (c) => {
 app.post('/api/orders', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
@@ -595,7 +595,7 @@ app.post('/api/orders', async (c) => {
 app.get('/api/orders/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
@@ -617,7 +617,7 @@ app.get('/api/orders/:id', async (c) => {
 app.patch('/api/orders/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const body = await c.req.json()
@@ -646,7 +646,7 @@ app.patch('/api/orders/:id', async (c) => {
 app.delete('/api/orders/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
@@ -668,7 +668,7 @@ app.delete('/api/orders/:id', async (c) => {
 app.get('/api/products', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const db = getDb(c.env?.DATABASE_URL)
     const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
@@ -688,18 +688,18 @@ app.get('/api/products', async (c) => {
 app.post('/api/products', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const body = await c.req.json()
     const name = String(body.name || '').trim()
     if (!name) {
-      return c.json({ error: 'El nombre del producto es obligatorio.' }, 400)
+      return c.json({ error: 'Product name is required.' }, 400)
     }
 
-    const category = String(body.category || '').trim() || 'Café Caliente'
+    const category = String(body.category || '').trim() || 'Hot Coffee'
     const parsedPrice = Number(body.price ?? 0)
     if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
-      return c.json({ error: 'El precio debe ser un número válido mayor o igual a 0.' }, 400)
+      return c.json({ error: 'Price must be a valid number greater than or equal to 0.' }, 400)
     }
     const description =
       body.description !== undefined && String(body.description ?? '').trim()
@@ -731,7 +731,7 @@ app.post('/api/products', async (c) => {
 app.patch('/api/products/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const body = await c.req.json()
@@ -745,21 +745,21 @@ app.patch('/api/products/:id', async (c) => {
     if (body.name !== undefined) {
       const trimmedName = String(body.name).trim()
       if (!trimmedName) {
-        return c.json({ error: 'El nombre del producto no puede estar vacío.' }, 400)
+        return c.json({ error: 'Product name cannot be empty.' }, 400)
       }
       updatePayload.name = trimmedName
     }
     if (body.category !== undefined) {
       const trimmedCategory = String(body.category).trim()
       if (!trimmedCategory) {
-        return c.json({ error: 'La categoría del producto no puede estar vacía.' }, 400)
+        return c.json({ error: 'Product category cannot be empty.' }, 400)
       }
       updatePayload.category = trimmedCategory
     }
     if (body.price !== undefined) {
       const parsedPrice = Number(body.price)
       if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
-        return c.json({ error: 'El precio debe ser un número válido mayor o igual a 0.' }, 400)
+        return c.json({ error: 'Price must be a valid number greater than or equal to 0.' }, 400)
       }
       updatePayload.price = parsedPrice.toFixed(2)
     }
@@ -786,7 +786,7 @@ app.patch('/api/products/:id', async (c) => {
 app.delete('/api/products/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)
@@ -808,7 +808,7 @@ app.delete('/api/products/:id', async (c) => {
 app.get('/api/customers', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const db = getDb(c.env?.DATABASE_URL)
     const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
@@ -828,7 +828,7 @@ app.get('/api/customers', async (c) => {
 app.post('/api/customers', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const body = await c.req.json()
     const db = getDb(c.env?.DATABASE_URL)
@@ -856,7 +856,7 @@ app.post('/api/customers', async (c) => {
 app.patch('/api/customers/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const body = await c.req.json()
@@ -886,7 +886,7 @@ app.patch('/api/customers/:id', async (c) => {
 app.delete('/api/customers/:id', async (c) => {
   try {
     const user = await getAuthenticatedUser(c)
-    if (!user) return c.json({ error: 'No autenticado' }, 401)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
     const id = c.req.param('id')
     const db = getDb(c.env?.DATABASE_URL)

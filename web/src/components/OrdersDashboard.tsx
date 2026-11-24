@@ -61,21 +61,21 @@ type DashboardSection = 'orders' | 'products' | 'customers'
 
 const DEFAULT_COFFEE_OPTIONS: Array<{ name: string; price: string }> = [
   { name: 'Espresso', price: '3.00' },
-  { name: 'Espresso Doble', price: '3.75' },
+  { name: 'Double Espresso', price: '3.75' },
   { name: 'Flat White', price: '4.50' },
-  { name: 'Cappuccino Vainilla', price: '4.75' },
-  { name: 'Latte Caramelo', price: '5.00' },
+  { name: 'Vanilla Cappuccino', price: '4.75' },
+  { name: 'Caramel Latte', price: '5.00' },
   { name: 'Cold Brew', price: '4.50' },
   { name: 'Matcha Latte', price: '5.25' },
-  { name: 'Croissant de Almendras', price: '3.80' },
+  { name: 'Almond Croissant', price: '3.80' },
 ]
 
 const PRODUCT_CATEGORIES = [
-  'Café Caliente',
-  'Café Frío',
-  'Especialidades',
-  'Sin Café',
-  'Panadería',
+  'Hot Coffee',
+  'Cold Coffee',
+  'Specialties',
+  'Coffee-Free',
+  'Bakery',
 ]
 
 export function OrdersDashboard() {
@@ -113,7 +113,7 @@ export function OrdersDashboard() {
   // Product Form state
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [prodName, setProdName] = useState('')
-  const [prodCategory, setProdCategory] = useState('Café Caliente')
+  const [prodCategory, setProdCategory] = useState('Hot Coffee')
   const [prodPrice, setProdPrice] = useState('4.00')
   const [prodDescription, setProdDescription] = useState('')
   const [prodAvailable, setProdAvailable] = useState(true)
@@ -211,7 +211,7 @@ export function OrdersDashboard() {
       setError(
         err instanceof Error
           ? err.message
-          : 'No se pudo conectar a la base de datos PostgreSQL. Asegúrate de ejecutar `make dev-db`.'
+          : 'Could not connect to the PostgreSQL database. Make sure to run `make dev-db`.'
       )
     } finally {
       setLoading(false)
@@ -223,7 +223,7 @@ export function OrdersDashboard() {
   }, [fetchAllData])
 
   const handleResetGuestData = () => {
-    if (!confirm('¿Restaurar los datos de demostración de tu sesión de invitado?')) return
+    if (!confirm('Reset the demo data for your guest session?')) return
     const fresh = guestStorage.resetDemoData()
     setOrders(fresh.orders)
     setProductsList(fresh.products)
@@ -322,7 +322,7 @@ export function OrdersDashboard() {
         const updated = guestStorage.updateOrderStatus(id, newStatus)
         setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)))
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Error al actualizar orden')
+        alert(err instanceof Error ? err.message : 'Error updating order')
       }
       return
     }
@@ -335,17 +335,17 @@ export function OrdersDashboard() {
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al actualizar la orden`)
+        throw new Error(errData.error || `Error ${res.status} updating order`)
       }
       const updated: Order = await res.json()
       setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al actualizar orden')
+      alert(err instanceof Error ? err.message : 'Error updating order')
     }
   }
 
   const handleDeleteOrder = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar esta orden?')) return
+    if (!confirm('Are you sure you want to delete this order?')) return
     if (auth.isGuest) {
       guestStorage.deleteOrder(id)
       setOrders((prev) => prev.filter((o) => o.id !== id))
@@ -359,11 +359,11 @@ export function OrdersDashboard() {
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al eliminar la orden`)
+        throw new Error(errData.error || `Error ${res.status} deleting order`)
       }
       setOrders((prev) => prev.filter((o) => o.id !== id))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al eliminar orden')
+      alert(err instanceof Error ? err.message : 'Error deleting order')
     }
   }
 
@@ -409,7 +409,7 @@ export function OrdersDashboard() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al crear la orden`)
+        throw new Error(errData.error || `Error ${res.status} creating order`)
       }
       const created: Order = await res.json()
       setOrders((prev) => [created, ...prev])
@@ -417,7 +417,7 @@ export function OrdersDashboard() {
       setCustomerName('')
       setOrderNotes('')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al crear la orden')
+      alert(err instanceof Error ? err.message : 'Error creating order')
     } finally {
       setSubmitting(false)
     }
@@ -439,17 +439,17 @@ export function OrdersDashboard() {
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al actualizar producto`)
+        throw new Error(errData.error || `Error ${res.status} updating product`)
       }
       const updated: Product = await res.json()
       setProductsList((prev) => prev.map((p) => (p.id === product.id ? updated : p)))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al actualizar producto')
+      alert(err instanceof Error ? err.message : 'Error updating product')
     }
   }
 
   const handleDeleteProduct = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar este producto del menú?')) return
+    if (!confirm('Are you sure you want to delete this product from the menu?')) return
     if (auth.isGuest) {
       guestStorage.deleteProduct(id)
       setProductsList((prev) => prev.filter((p) => p.id !== id))
@@ -463,11 +463,11 @@ export function OrdersDashboard() {
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al eliminar producto`)
+        throw new Error(errData.error || `Error ${res.status} deleting product`)
       }
       setProductsList((prev) => prev.filter((p) => p.id !== id))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al eliminar producto')
+      alert(err instanceof Error ? err.message : 'Error deleting product')
     }
   }
 
@@ -512,13 +512,13 @@ export function OrdersDashboard() {
 
     const parsedPrice = Number(prodPrice)
     if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
-      alert('El precio debe ser un número válido mayor o igual a 0.')
+      alert('Price must be a valid number greater than or equal to 0.')
       return
     }
 
     const productPayload = {
       name: prodName.trim(),
-      category: prodCategory.trim() || 'Café Caliente',
+      category: prodCategory.trim() || 'Hot Coffee',
       price: parsedPrice.toFixed(2),
       description: prodDescription.trim() || null,
       available: prodAvailable,
@@ -533,7 +533,7 @@ export function OrdersDashboard() {
           )
           closeProductModal()
         } catch (err) {
-          alert(err instanceof Error ? err.message : 'Error al actualizar producto')
+          alert(err instanceof Error ? err.message : 'Error updating product')
         }
         return
       }
@@ -548,7 +548,7 @@ export function OrdersDashboard() {
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}))
-          throw new Error(errData.error || `Error ${res.status} al actualizar producto`)
+          throw new Error(errData.error || `Error ${res.status} updating product`)
         }
         const updated: Product = await res.json()
         setProductsList((prev) =>
@@ -556,7 +556,7 @@ export function OrdersDashboard() {
         )
         closeProductModal()
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Error al actualizar producto')
+        alert(err instanceof Error ? err.message : 'Error updating product')
       } finally {
         setSubmitting(false)
       }
@@ -584,7 +584,7 @@ export function OrdersDashboard() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al crear producto`)
+        throw new Error(errData.error || `Error ${res.status} creating product`)
       }
       const created: Product = await res.json()
       setProductsList((prev) => [...prev, created])
@@ -594,7 +594,7 @@ export function OrdersDashboard() {
       setProdPrice('4.00')
       setProdAvailable(true)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al crear producto')
+      alert(err instanceof Error ? err.message : 'Error creating product')
     } finally {
       setSubmitting(false)
     }
@@ -617,17 +617,17 @@ export function OrdersDashboard() {
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al actualizar puntos`)
+        throw new Error(errData.error || `Error ${res.status} updating points`)
       }
       const updated: Customer = await res.json()
       setCustomersList((prev) => prev.map((c) => (c.id === customer.id ? updated : c)))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al actualizar puntos')
+      alert(err instanceof Error ? err.message : 'Error updating points')
     }
   }
 
   const handleDeleteCustomer = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar este cliente?')) return
+    if (!confirm('Are you sure you want to delete this customer?')) return
     if (auth.isGuest) {
       guestStorage.deleteCustomer(id)
       setCustomersList((prev) => prev.filter((c) => c.id !== id))
@@ -641,11 +641,11 @@ export function OrdersDashboard() {
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al eliminar cliente`)
+        throw new Error(errData.error || `Error ${res.status} deleting customer`)
       }
       setCustomersList((prev) => prev.filter((c) => c.id !== id))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al eliminar cliente')
+      alert(err instanceof Error ? err.message : 'Error deleting customer')
     }
   }
 
@@ -682,7 +682,7 @@ export function OrdersDashboard() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || `Error ${res.status} al registrar cliente`)
+        throw new Error(errData.error || `Error ${res.status} registering customer`)
       }
       const created: Customer = await res.json()
       setCustomersList((prev) => [created, ...prev])
@@ -692,7 +692,7 @@ export function OrdersDashboard() {
       setCustPhone('')
       setCustPoints(0)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al registrar cliente')
+      alert(err instanceof Error ? err.message : 'Error registering customer')
     } finally {
       setSubmitting(false)
     }
@@ -793,9 +793,9 @@ export function OrdersDashboard() {
         <div className="auth-status-info">
           {auth.isGuest ? (
             <>
-              <span className="auth-badge badge-guest">👤 Modo Invitado</span>
+              <span className="auth-badge badge-guest">👤 Guest Mode</span>
               <span className="auth-status-text">
-                Tus cambios se guardan en <code>sessionStorage</code> del navegador (ID:{' '}
+                Your changes are saved in browser <code>sessionStorage</code> (ID:{' '}
                 <code>{auth.guestId}</code>)
               </span>
             </>
@@ -805,7 +805,7 @@ export function OrdersDashboard() {
                 🔐 {auth.user?.displayName} ({auth.user?.email})
               </span>
               <span className="auth-status-text">
-                Conectado a <strong>PostgreSQL / Neon</strong> · Proveedor:{' '}
+                Connected to <strong>PostgreSQL / Neon</strong> · Provider:{' '}
                 <code>{auth.user?.provider}</code>
               </span>
             </>
@@ -819,7 +819,7 @@ export function OrdersDashboard() {
                 type="button"
                 className="btn-auth-reset"
                 onClick={handleResetGuestData}
-                title="Restaurar datos demo en sessionStorage"
+                title="Reset demo data in sessionStorage"
               >
                 🔄 Reset Demo
               </button>
@@ -828,14 +828,14 @@ export function OrdersDashboard() {
                 className="btn-auth-login"
                 onClick={() => authStore.openAuthModal('login')}
               >
-                🔐 Iniciar Sesión
+                🔐 Sign In
               </button>
               <button
                 type="button"
                 className="btn-auth-register"
                 onClick={() => authStore.openAuthModal('register')}
               >
-                ✨ Crear Cuenta
+                ✨ Create Account
               </button>
             </>
           ) : (
@@ -845,7 +845,7 @@ export function OrdersDashboard() {
                 className="btn-auth-logout"
                 onClick={() => authStore.logoutToGuest()}
               >
-                Salir a Modo Invitado
+                Switch to Guest Mode
               </button>
             </>
           )}
@@ -857,7 +857,7 @@ export function OrdersDashboard() {
         {auth.isGuest ? (
           <>
             <div className="business-switcher-left">
-              <span className="business-switcher-label">🏪 Negocio Demo:</span>
+              <span className="business-switcher-label">🏪 Demo Business:</span>
               <strong>The Cloud Cafe</strong>
             </div>
             <div className="business-switcher-actions">
@@ -866,7 +866,7 @@ export function OrdersDashboard() {
                 className="btn-business-add"
                 onClick={() => authStore.openAuthModal('register')}
               >
-                + Crea tu cuenta para agregar negocios
+                + Create an account to add businesses
               </button>
             </div>
           </>
@@ -874,7 +874,7 @@ export function OrdersDashboard() {
           <>
             <div className="business-switcher-left">
               <label htmlFor="active-business-select" className="business-switcher-label">
-                🏪 Negocio Activo:
+                🏪 Active Business:
               </label>
               <select
                 id="active-business-select"
@@ -884,7 +884,7 @@ export function OrdersDashboard() {
                 disabled={auth.businesses.length === 0}
               >
                 {auth.businesses.length === 0 ? (
-                  <option value="">Cargando negocios...</option>
+                  <option value="">Loading businesses...</option>
                 ) : (
                   auth.businesses.map((biz) => (
                     <option key={biz.id} value={biz.id}>
@@ -898,7 +898,7 @@ export function OrdersDashboard() {
                   className="business-wa-pill"
                   title={`WhatsApp Phone Number ID: ${activeBusiness.whatsappPhoneNumberId}`}
                 >
-                  📱 WhatsApp vinculado
+                  📱 WhatsApp linked
                 </span>
               )}
             </div>
@@ -912,7 +912,7 @@ export function OrdersDashboard() {
                     setShowBusinessModal(true)
                   }}
                 >
-                  ⚙️ Configurar
+                  ⚙️ Settings
                 </button>
               )}
               <button
@@ -923,7 +923,7 @@ export function OrdersDashboard() {
                   setShowBusinessModal(true)
                 }}
               >
-                + Nuevo Negocio
+                + New Business
               </button>
             </div>
           </>
@@ -939,9 +939,9 @@ export function OrdersDashboard() {
           </h1>
           <p className="orders-subtitle">
             {auth.isGuest
-              ? 'Modo Invitado Activo — Datos efímeros en la sesión de tu navegador (sessionStorage)'
+              ? 'Guest Mode Active — Ephemeral data in your browser session (sessionStorage)'
               : activeBusiness?.description ||
-                'Órdenes Multi-Producto, Catálogo y Clientes con PostgreSQL & Drizzle ORM'}
+                'Multi-Product Orders, Catalog & Customers with PostgreSQL & Drizzle ORM'}
           </p>
         </div>
         <div className="orders-header-actions">
@@ -950,9 +950,9 @@ export function OrdersDashboard() {
             className="btn-refresh"
             onClick={fetchAllData}
             disabled={loading}
-            title="Refrescar datos"
+            title="Refresh data"
           >
-            <span className={loading ? 'spinning' : ''}>🔄</span> Refrescar
+            <span className={loading ? 'spinning' : ''}>🔄</span> Refresh
           </button>
           {activeSection === 'orders' && (
             <button
@@ -960,7 +960,7 @@ export function OrdersDashboard() {
               className="btn-new-order"
               onClick={() => openNewOrderModal()}
             >
-              <span>+</span> Nueva Orden
+              <span>+</span> New Order
             </button>
           )}
           {activeSection === 'products' && (
@@ -969,7 +969,7 @@ export function OrdersDashboard() {
               className="btn-new-order"
               onClick={openNewProductModal}
             >
-              <span>+</span> Nuevo Producto
+              <span>+</span> New Product
             </button>
           )}
           {activeSection === 'customers' && (
@@ -981,7 +981,7 @@ export function OrdersDashboard() {
                 setShowCustomerModal(true)
               }}
             >
-              <span>+</span> Nuevo Cliente
+              <span>+</span> New Customer
             </button>
           )}
         </div>
@@ -997,7 +997,7 @@ export function OrdersDashboard() {
             setSearchQuery('')
           }}
         >
-          📋 Órdenes <span className="nav-badge">{stats.totalOrders}</span>
+          📋 Orders <span className="nav-badge">{stats.totalOrders}</span>
         </button>
         <button
           type="button"
@@ -1007,7 +1007,7 @@ export function OrdersDashboard() {
             setSearchQuery('')
           }}
         >
-          🥐 Productos <span className="nav-badge">{stats.totalProducts}</span>
+          🥐 Products <span className="nav-badge">{stats.totalProducts}</span>
         </button>
         <button
           type="button"
@@ -1017,34 +1017,34 @@ export function OrdersDashboard() {
             setSearchQuery('')
           }}
         >
-          👥 Clientes <span className="nav-badge">{stats.totalCustomers}</span>
+          👥 Customers <span className="nav-badge">{stats.totalCustomers}</span>
         </button>
       </div>
 
       {/* Stats Cards */}
       <div className="orders-stats">
         <div className="stat-card">
-          <span className="stat-label">Órdenes / Pendientes</span>
+          <span className="stat-label">Orders / Pending</span>
           <span className="stat-value">
             {stats.totalOrders}{' '}
             <small className="stat-subvalue">({stats.pendingOrders} pend.)</small>
           </span>
         </div>
         <div className="stat-card stat-completed">
-          <span className="stat-label">Ventas / Ítems</span>
+          <span className="stat-label">Sales / Items</span>
           <span className="stat-value">
             ${stats.totalRevenue.toFixed(2)}{' '}
-            <small className="stat-subvalue-neutral">({stats.totalItemsCount} ítems)</small>
+            <small className="stat-subvalue-neutral">({stats.totalItemsCount} items)</small>
           </span>
         </div>
         <div className="stat-card stat-pending">
-          <span className="stat-label">Productos Activos</span>
+          <span className="stat-label">Active Products</span>
           <span className="stat-value">
             {stats.availableProducts} / {stats.totalProducts}
           </span>
         </div>
         <div className="stat-card stat-cups">
-          <span className="stat-label">Clientes Registrados</span>
+          <span className="stat-label">Registered Customers</span>
           <span className="stat-value">{stats.totalCustomers}</span>
         </div>
       </div>
@@ -1054,14 +1054,14 @@ export function OrdersDashboard() {
         <div className="orders-error-banner">
           <div className="error-icon">⚠️</div>
           <div className="error-content">
-            <strong>Error de conexión con la base de datos</strong>
+            <strong>Database connection error</strong>
             <p>{error}</p>
             <div className="error-tip">
-              Tip: ¿El contenedor de Postgres está activo? Inícialo con: <code>make dev-db</code>
+              Tip: Is the Postgres container running? Start it with: <code>make dev-db</code>
             </div>
           </div>
           <button type="button" className="btn-retry" onClick={fetchAllData}>
-            Reintentar
+            Retry
           </button>
         </div>
       )}
@@ -1074,10 +1074,10 @@ export function OrdersDashboard() {
             type="text"
             placeholder={
               activeSection === 'orders'
-                ? 'Buscar orden por cliente, producto o nota...'
+                ? 'Search orders by customer, product, or note...'
                 : activeSection === 'products'
-                ? 'Buscar producto por nombre, categoría o descripción...'
-                : 'Buscar cliente por nombre, email, teléfono o bebida...'
+                ? 'Search products by name, category, or description...'
+                : 'Search customers by name, email, phone, or drink...'
             }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -1101,28 +1101,28 @@ export function OrdersDashboard() {
               className={`filter-tab ${statusFilter === 'all' ? 'active' : ''}`}
               onClick={() => setStatusFilter('all')}
             >
-              Todas ({stats.totalOrders})
+              All ({stats.totalOrders})
             </button>
             <button
               type="button"
               className={`filter-tab tab-pending ${statusFilter === 'pending' ? 'active' : ''}`}
               onClick={() => setStatusFilter('pending')}
             >
-              Pendientes ({stats.pendingOrders})
+              Pending ({stats.pendingOrders})
             </button>
             <button
               type="button"
               className={`filter-tab tab-completed ${statusFilter === 'completed' ? 'active' : ''}`}
               onClick={() => setStatusFilter('completed')}
             >
-              Completadas ({stats.completedOrders})
+              Completed ({stats.completedOrders})
             </button>
             <button
               type="button"
               className={`filter-tab tab-cancelled ${statusFilter === 'cancelled' ? 'active' : ''}`}
               onClick={() => setStatusFilter('cancelled')}
             >
-              Canceladas ({stats.cancelledOrders})
+              Cancelled ({stats.cancelledOrders})
             </button>
           </div>
         )}
@@ -1134,7 +1134,7 @@ export function OrdersDashboard() {
               className={`filter-tab ${categoryFilter === 'all' ? 'active' : ''}`}
               onClick={() => setCategoryFilter('all')}
             >
-              Todos ({stats.totalProducts})
+              All ({stats.totalProducts})
             </button>
             {allProductCategories.map((cat) => (
               <button
@@ -1155,11 +1155,11 @@ export function OrdersDashboard() {
         <div className="orders-table-container">
           {loading && orders.length === 0 ? (
             <div className="orders-loading">
-              <span className="spinning">⏳</span> Cargando órdenes...
+              <span className="spinning">⏳</span> Loading orders...
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className="orders-empty">
-              <p>☕ No se encontraron órdenes con los filtros actuales.</p>
+              <p>☕ No orders found with the current filters.</p>
               {statusFilter !== 'all' || searchQuery ? (
                 <button
                   type="button"
@@ -1169,7 +1169,7 @@ export function OrdersDashboard() {
                     setSearchQuery('')
                   }}
                 >
-                  Limpiar filtros
+                  Clear filters
                 </button>
               ) : (
                 <button
@@ -1177,7 +1177,7 @@ export function OrdersDashboard() {
                   className="btn-new-order"
                   onClick={() => openNewOrderModal()}
                 >
-                  + Crear la primera orden
+                  + Create first order
                 </button>
               )}
             </div>
@@ -1185,12 +1185,12 @@ export function OrdersDashboard() {
             <table className="orders-table">
               <thead>
                 <tr>
-                  <th>Cliente</th>
-                  <th>Productos ({'order_items'})</th>
+                  <th>Customer</th>
+                  <th>Products ({'order_items'})</th>
                   <th className="text-right">Total</th>
-                  <th>Estado</th>
-                  <th>Hora</th>
-                  <th className="text-right">Acciones</th>
+                  <th>Status</th>
+                  <th>Time</th>
+                  <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1218,7 +1218,7 @@ export function OrdersDashboard() {
                             </div>
                           ))
                         ) : (
-                          <span className="order-notes">Sin productos</span>
+                          <span className="order-notes">No products</span>
                         )}
                       </div>
                     </td>
@@ -1227,9 +1227,9 @@ export function OrdersDashboard() {
                     </td>
                     <td>
                       <span className={`status-pill pill-${order.status}`}>
-                        {order.status === 'pending' && '⏳ Pendiente'}
-                        {order.status === 'completed' && '✅ Completado'}
-                        {order.status === 'cancelled' && '❌ Cancelado'}
+                        {order.status === 'pending' && '⏳ Pending'}
+                        {order.status === 'completed' && '✅ Completed'}
+                        {order.status === 'cancelled' && '❌ Cancelled'}
                         {!['pending', 'completed', 'cancelled'].includes(order.status) &&
                           order.status}
                       </span>
@@ -1241,9 +1241,9 @@ export function OrdersDashboard() {
                           type="button"
                           className="btn-action btn-complete"
                           onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
-                          title="Marcar como completada"
+                          title="Mark as completed"
                         >
-                          ✓ Listo
+                          ✓ Done
                         </button>
                       )}
                       {order.status === 'pending' && (
@@ -1251,7 +1251,7 @@ export function OrdersDashboard() {
                           type="button"
                           className="btn-action btn-cancel"
                           onClick={() => handleUpdateOrderStatus(order.id, 'cancelled')}
-                          title="Cancelar orden"
+                          title="Cancel order"
                         >
                           ✕
                         </button>
@@ -1261,16 +1261,16 @@ export function OrdersDashboard() {
                           type="button"
                           className="btn-action btn-reopen"
                           onClick={() => handleUpdateOrderStatus(order.id, 'pending')}
-                          title="Reabrir como pendiente"
+                          title="Reopen as pending"
                         >
-                          ↩ Reabrir
+                          ↩ Reopen
                         </button>
                       )}
                       <button
                         type="button"
                         className="btn-action btn-delete"
                         onClick={() => handleDeleteOrder(order.id)}
-                        title="Eliminar orden"
+                        title="Delete order"
                       >
                         🗑
                       </button>
@@ -1288,11 +1288,11 @@ export function OrdersDashboard() {
         <div className="orders-table-container">
           {loading && productsList.length === 0 ? (
             <div className="orders-loading">
-              <span className="spinning">⏳</span> Cargando productos...
+              <span className="spinning">⏳</span> Loading products...
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="orders-empty">
-              <p>🥐 No se encontraron productos en el catálogo.</p>
+              <p>🥐 No products found in the catalog.</p>
               {categoryFilter !== 'all' || searchQuery ? (
                 <button
                   type="button"
@@ -1302,7 +1302,7 @@ export function OrdersDashboard() {
                     setSearchQuery('')
                   }}
                 >
-                  Limpiar filtros
+                  Clear filters
                 </button>
               ) : (
                 <button
@@ -1310,7 +1310,7 @@ export function OrdersDashboard() {
                   className="btn-new-order"
                   onClick={openNewProductModal}
                 >
-                  + Agregar primer producto
+                  + Add first product
                 </button>
               )}
             </div>
@@ -1318,11 +1318,11 @@ export function OrdersDashboard() {
             <table className="orders-table">
               <thead>
                 <tr>
-                  <th>Producto</th>
-                  <th>Categoría</th>
-                  <th>Precio</th>
-                  <th>Disponibilidad</th>
-                  <th className="text-right">Acciones</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Price</th>
+                  <th>Availability</th>
+                  <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1347,7 +1347,7 @@ export function OrdersDashboard() {
                           product.available ? 'pill-completed' : 'pill-cancelled'
                         }`}
                       >
-                        {product.available ? '✅ Disponible' : '🚫 Agotado'}
+                        {product.available ? '✅ Available' : '🚫 Out of Stock'}
                       </span>
                     </td>
                     <td className="actions-cell">
@@ -1355,9 +1355,9 @@ export function OrdersDashboard() {
                         type="button"
                         className="btn-action btn-edit"
                         onClick={() => openEditProductModal(product)}
-                        title="Editar producto"
+                        title="Edit product"
                       >
-                        ✏️ Editar
+                        ✏️ Edit
                       </button>
                       <button
                         type="button"
@@ -1365,15 +1365,15 @@ export function OrdersDashboard() {
                           product.available ? 'btn-reopen' : 'btn-complete'
                         }`}
                         onClick={() => handleToggleProductAvailability(product)}
-                        title="Cambiar disponibilidad"
+                        title="Toggle availability"
                       >
-                        {product.available ? 'Marcar Agotado' : 'Activar'}
+                        {product.available ? 'Mark Out of Stock' : 'Activate'}
                       </button>
                       <button
                         type="button"
                         className="btn-action btn-delete"
                         onClick={() => handleDeleteProduct(product.id)}
-                        title="Eliminar producto"
+                        title="Delete product"
                       >
                         🗑
                       </button>
@@ -1391,18 +1391,18 @@ export function OrdersDashboard() {
         <div className="orders-table-container">
           {loading && customersList.length === 0 ? (
             <div className="orders-loading">
-              <span className="spinning">⏳</span> Cargando clientes...
+              <span className="spinning">⏳</span> Loading customers...
             </div>
           ) : filteredCustomers.length === 0 ? (
             <div className="orders-empty">
-              <p>👥 No se encontraron clientes registrados.</p>
+              <p>👥 No registered customers found.</p>
               {searchQuery ? (
                 <button
                   type="button"
                   className="btn-reset-filters"
                   onClick={() => setSearchQuery('')}
                 >
-                  Limpiar búsqueda
+                  Clear search
                 </button>
               ) : (
                 <button
@@ -1410,7 +1410,7 @@ export function OrdersDashboard() {
                   className="btn-new-order"
                   onClick={() => setShowCustomerModal(true)}
                 >
-                  + Registrar primer cliente
+                  + Register first customer
                 </button>
               )}
             </div>
@@ -1418,11 +1418,11 @@ export function OrdersDashboard() {
             <table className="orders-table">
               <thead>
                 <tr>
-                  <th>Cliente</th>
-                  <th>Contacto</th>
-                  <th>Bebida Favorita</th>
-                  <th className="text-center">Puntos Lealtad</th>
-                  <th className="text-right">Acciones</th>
+                  <th>Customer</th>
+                  <th>Contact</th>
+                  <th>Favorite Drink</th>
+                  <th className="text-center">Loyalty Points</th>
+                  <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1441,7 +1441,7 @@ export function OrdersDashboard() {
                         {customer.email && <div>✉️ {customer.email}</div>}
                         {customer.phone && <div className="order-notes">📱 {customer.phone}</div>}
                         {!customer.email && !customer.phone && (
-                          <span className="order-notes">Sin datos</span>
+                          <span className="order-notes">No info</span>
                         )}
                       </div>
                     </td>
@@ -1460,7 +1460,7 @@ export function OrdersDashboard() {
                         type="button"
                         className="btn-action btn-complete"
                         onClick={() => handleAddCustomerPoints(customer, 10)}
-                        title="Sumar 10 puntos"
+                        title="Add 10 points"
                       >
                         +10 pts
                       </button>
@@ -1468,15 +1468,15 @@ export function OrdersDashboard() {
                         type="button"
                         className="btn-action btn-reopen"
                         onClick={() => openNewOrderModal(customer)}
-                        title="Crear orden para este cliente"
+                        title="Create order for this customer"
                       >
-                        ☕ Ordenar
+                        ☕ Order
                       </button>
                       <button
                         type="button"
                         className="btn-action btn-delete"
                         onClick={() => handleDeleteCustomer(customer.id)}
-                        title="Eliminar cliente"
+                        title="Delete customer"
                       >
                         🗑
                       </button>
@@ -1489,12 +1489,12 @@ export function OrdersDashboard() {
         </div>
       )}
 
-      {/* ================= MODAL: NUEVA ORDEN MULTI-PRODUCTO ================= */}
+      {/* ================= MODAL: NEW MULTI-PRODUCT ORDER ================= */}
       {showOrderModal && (
         <div className="modal-overlay" onClick={() => setShowOrderModal(false)}>
           <div className="modal-card modal-card-wide" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>☕ Nueva Orden (Múltiples Productos)</h2>
+              <h2>☕ New Order (Multiple Products)</h2>
               <button
                 type="button"
                 className="modal-close"
@@ -1505,13 +1505,13 @@ export function OrdersDashboard() {
             </div>
             <form onSubmit={handleCreateOrder} className="modal-form">
               <div className="form-group">
-                <label htmlFor="customer-name">Cliente *</label>
+                <label htmlFor="customer-name">Customer *</label>
                 <input
                   id="customer-name"
                   type="text"
                   list="customers-datalist"
                   required
-                  placeholder="Selecciona o escribe el nombre del cliente"
+                  placeholder="Select or type the customer name"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   autoFocus
@@ -1525,13 +1525,13 @@ export function OrdersDashboard() {
 
               <div className="order-cart-section">
                 <div className="order-cart-header">
-                  <label>Productos de la Orden ({draftItems.length})</label>
+                  <label>Order Items ({draftItems.length})</label>
                   <button
                     type="button"
                     className="btn-add-item"
                     onClick={handleAddDraftItem}
                   >
-                    + Agregar otro producto
+                    + Add another product
                   </button>
                 </div>
 
@@ -1559,7 +1559,7 @@ export function OrdersDashboard() {
                           onChange={(e) =>
                             handleDraftQuantityChange(index, Number(e.target.value))
                           }
-                          title="Cantidad"
+                          title="Quantity"
                         />
                         <span className="cart-row-subtotal">
                           ${((Number(item.unitPrice) || 0) * item.quantity).toFixed(2)}
@@ -1569,7 +1569,7 @@ export function OrdersDashboard() {
                             type="button"
                             className="btn-remove-item"
                             onClick={() => handleRemoveDraftItem(index)}
-                            title="Quitar este producto"
+                            title="Remove this product"
                           >
                             ✕
                           </button>
@@ -1578,7 +1578,7 @@ export function OrdersDashboard() {
                       <input
                         type="text"
                         className="cart-row-notes"
-                        placeholder="Nota para este producto (ej. Leche de avena, sin azúcar)..."
+                        placeholder="Note for this product (e.g. Oat milk, no sugar)..."
                         value={item.notes}
                         onChange={(e) => handleDraftNotesChange(index, e.target.value)}
                       />
@@ -1587,17 +1587,17 @@ export function OrdersDashboard() {
                 </div>
 
                 <div className="order-cart-total">
-                  <span>Total de la Orden:</span>
+                  <span>Order Total:</span>
                   <strong>${draftTotalAmount.toFixed(2)}</strong>
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="order-notes">Notas generales del pedido (opcional)</label>
+                <label htmlFor="order-notes">General order notes (optional)</label>
                 <input
                   id="order-notes"
                   type="text"
-                  placeholder="Ej. Para llevar, entregar en mesa 4"
+                  placeholder="e.g. To go, deliver to table 4"
                   value={orderNotes}
                   onChange={(e) => setOrderNotes(e.target.value)}
                 />
@@ -1609,7 +1609,7 @@ export function OrdersDashboard() {
                   className="btn-secondary"
                   onClick={() => setShowOrderModal(false)}
                 >
-                  Cancelar
+                  Cancel
                 </button>
                 <button
                   type="submit"
@@ -1617,8 +1617,8 @@ export function OrdersDashboard() {
                   disabled={submitting || !customerName.trim() || draftItems.length === 0}
                 >
                   {submitting
-                    ? 'Guardando...'
-                    : `Crear Orden ($${draftTotalAmount.toFixed(2)})`}
+                    ? 'Saving...'
+                    : `Create Order ($${draftTotalAmount.toFixed(2)})`}
                 </button>
               </div>
             </form>
@@ -1626,12 +1626,12 @@ export function OrdersDashboard() {
         </div>
       )}
 
-      {/* ================= MODAL: CREAR / EDITAR PRODUCTO ================= */}
+      {/* ================= MODAL: CREATE / EDIT PRODUCT ================= */}
       {showProductModal && (
         <div className="modal-overlay" onClick={closeProductModal}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{editingProduct ? '✏️ Editar Producto' : '🥐 Nuevo Producto'}</h2>
+              <h2>{editingProduct ? '✏️ Edit Product' : '🥐 New Product'}</h2>
               <button
                 type="button"
                 className="modal-close"
@@ -1642,12 +1642,12 @@ export function OrdersDashboard() {
             </div>
             <form onSubmit={handleSaveProduct} className="modal-form">
               <div className="form-group">
-                <label htmlFor="prod-name">Nombre del Producto *</label>
+                <label htmlFor="prod-name">Product Name *</label>
                 <input
                   id="prod-name"
                   type="text"
                   required
-                  placeholder="Ej. Caramel Macchiato"
+                  placeholder="e.g. Caramel Macchiato"
                   value={prodName}
                   onChange={(e) => setProdName(e.target.value)}
                   autoFocus
@@ -1656,13 +1656,13 @@ export function OrdersDashboard() {
 
               <div className="form-row">
                 <div className="form-group flex-1">
-                  <label htmlFor="prod-category">Categoría *</label>
+                  <label htmlFor="prod-category">Category *</label>
                   <input
                     id="prod-category"
                     type="text"
                     list="product-categories-datalist"
                     required
-                    placeholder="Ej. Café Caliente"
+                    placeholder="e.g. Hot Coffee"
                     value={prodCategory}
                     onChange={(e) => setProdCategory(e.target.value)}
                   />
@@ -1673,7 +1673,7 @@ export function OrdersDashboard() {
                   </datalist>
                 </div>
                 <div className="form-group w-28">
-                  <label htmlFor="prod-price">Precio (USD) *</label>
+                  <label htmlFor="prod-price">Price (USD) *</label>
                   <input
                     id="prod-price"
                     type="number"
@@ -1687,11 +1687,11 @@ export function OrdersDashboard() {
               </div>
 
               <div className="form-group">
-                <label htmlFor="prod-desc">Descripción</label>
+                <label htmlFor="prod-desc">Description</label>
                 <textarea
                   id="prod-desc"
                   rows={2}
-                  placeholder="Ej. Espresso con leche vaporizada y vainilla"
+                  placeholder="e.g. Espresso with steamed milk and vanilla"
                   value={prodDescription}
                   onChange={(e) => setProdDescription(e.target.value)}
                 />
@@ -1704,7 +1704,7 @@ export function OrdersDashboard() {
                     checked={prodAvailable}
                     onChange={(e) => setProdAvailable(e.target.checked)}
                   />
-                  <span>Disponible para ordenar inmediatamente</span>
+                  <span>Available to order immediately</span>
                 </label>
               </div>
 
@@ -1714,7 +1714,7 @@ export function OrdersDashboard() {
                   className="btn-secondary"
                   onClick={closeProductModal}
                 >
-                  Cancelar
+                  Cancel
                 </button>
                 <button
                   type="submit"
@@ -1722,10 +1722,10 @@ export function OrdersDashboard() {
                   disabled={submitting || !prodName.trim() || !prodCategory.trim()}
                 >
                   {submitting
-                    ? 'Guardando...'
+                    ? 'Saving...'
                     : editingProduct
-                    ? 'Guardar Cambios'
-                    : 'Guardar Producto'}
+                    ? 'Save Changes'
+                    : 'Save Product'}
                 </button>
               </div>
             </form>
@@ -1733,12 +1733,12 @@ export function OrdersDashboard() {
         </div>
       )}
 
-      {/* ================= MODAL: NUEVO CLIENTE ================= */}
+      {/* ================= MODAL: NEW CUSTOMER ================= */}
       {showCustomerModal && (
         <div className="modal-overlay" onClick={() => setShowCustomerModal(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>👥 Registrar Nuevo Cliente</h2>
+              <h2>👥 Register New Customer</h2>
               <button
                 type="button"
                 className="modal-close"
@@ -1749,12 +1749,12 @@ export function OrdersDashboard() {
             </div>
             <form onSubmit={handleCreateCustomer} className="modal-form">
               <div className="form-group">
-                <label htmlFor="cust-name">Nombre Completo *</label>
+                <label htmlFor="cust-name">Full Name *</label>
                 <input
                   id="cust-name"
                   type="text"
                   required
-                  placeholder="Ej. Laura Martínez"
+                  placeholder="e.g. Laura Martinez"
                   value={custName}
                   onChange={(e) => setCustName(e.target.value)}
                   autoFocus
@@ -1763,7 +1763,7 @@ export function OrdersDashboard() {
 
               <div className="form-row">
                 <div className="form-group flex-1">
-                  <label htmlFor="cust-email">Correo Electrónico</label>
+                  <label htmlFor="cust-email">Email</label>
                   <input
                     id="cust-email"
                     type="email"
@@ -1773,11 +1773,11 @@ export function OrdersDashboard() {
                   />
                 </div>
                 <div className="form-group flex-1">
-                  <label htmlFor="cust-phone">Teléfono</label>
+                  <label htmlFor="cust-phone">Phone</label>
                   <input
                     id="cust-phone"
                     type="text"
-                    placeholder="+52 55 1234 5678"
+                    placeholder="+1 555 123 4567"
                     value={custPhone}
                     onChange={(e) => setCustPhone(e.target.value)}
                   />
@@ -1786,7 +1786,7 @@ export function OrdersDashboard() {
 
               <div className="form-row">
                 <div className="form-group flex-1">
-                  <label htmlFor="cust-drink">Bebida Favorita</label>
+                  <label htmlFor="cust-drink">Favorite Drink</label>
                   <select
                     id="cust-drink"
                     value={custFavoriteDrink}
@@ -1800,7 +1800,7 @@ export function OrdersDashboard() {
                   </select>
                 </div>
                 <div className="form-group w-28">
-                  <label htmlFor="cust-points">Puntos Iniciales</label>
+                  <label htmlFor="cust-points">Initial Points</label>
                   <input
                     id="cust-points"
                     type="number"
@@ -1817,14 +1817,14 @@ export function OrdersDashboard() {
                   className="btn-secondary"
                   onClick={() => setShowCustomerModal(false)}
                 >
-                  Cancelar
+                  Cancel
                 </button>
                 <button
                   type="submit"
                   className="btn-primary"
                   disabled={submitting || !custName.trim()}
                 >
-                  {submitting ? 'Guardando...' : 'Registrar Cliente'}
+                  {submitting ? 'Saving...' : 'Register Customer'}
                 </button>
               </div>
             </form>
@@ -1832,7 +1832,7 @@ export function OrdersDashboard() {
         </div>
       )}
 
-      {/* ================= MODAL: CREAR / EDITAR NEGOCIO ================= */}
+      {/* ================= MODAL: CREATE / EDIT BUSINESS ================= */}
       <BusinessModal
         open={showBusinessModal}
         mode={businessModalMode}
@@ -1848,7 +1848,7 @@ export function OrdersDashboard() {
         }}
       />
 
-      {/* ================= MODAL: AUTENTICACIÓN GCP IDENTITY PLATFORM ================= */}
+      {/* ================= MODAL: GCP IDENTITY PLATFORM AUTHENTICATION ================= */}
       <AuthModal />
     </div>
   )

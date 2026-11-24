@@ -13,10 +13,10 @@ function createInitialGuestDb(): GuestDatabase {
   const products: Product[] = [
     {
       id: 'g-prod-1',
-      name: 'Espresso Doble',
-      category: 'Café Caliente',
+      name: 'Double Espresso',
+      category: 'Hot Coffee',
       price: '3.75',
-      description: 'Shot doble de café de especialidad 100% Arábica',
+      description: 'Double shot of 100% Arabica specialty coffee',
       available: true,
       createdAt: now,
       updatedAt: now,
@@ -24,49 +24,49 @@ function createInitialGuestDb(): GuestDatabase {
     {
       id: 'g-prod-2',
       name: 'Flat White',
-      category: 'Café Caliente',
+      category: 'Hot Coffee',
       price: '4.50',
-      description: 'Doble ristretto con microespuma sedosa',
+      description: 'Double ristretto with silky microfoam',
       available: true,
       createdAt: now,
       updatedAt: now,
     },
     {
       id: 'g-prod-3',
-      name: 'Cappuccino Vainilla',
-      category: 'Especialidades',
+      name: 'Vanilla Cappuccino',
+      category: 'Specialties',
       price: '4.75',
-      description: 'Espresso, leche texturizada y jarabe artesanal de vainilla',
+      description: 'Espresso, textured milk, and house-made vanilla syrup',
       available: true,
       createdAt: now,
       updatedAt: now,
     },
     {
       id: 'g-prod-4',
-      name: 'Cold Brew Naranja',
-      category: 'Café Frío',
+      name: 'Orange Cold Brew',
+      category: 'Cold Coffee',
       price: '4.95',
-      description: 'Extracción en frío por 18 horas con toque cítrico',
+      description: '18-hour cold brew extraction with a citrus twist',
       available: true,
       createdAt: now,
       updatedAt: now,
     },
     {
       id: 'g-prod-5',
-      name: 'Matcha Latte Ceremonial',
-      category: 'Sin Café',
+      name: 'Ceremonial Matcha Latte',
+      category: 'Coffee-Free',
       price: '5.25',
-      description: 'Té verde matcha japonés grado ceremonial con leche de avena',
+      description: 'Ceremonial-grade Japanese green matcha tea with oat milk',
       available: true,
       createdAt: now,
       updatedAt: now,
     },
     {
       id: 'g-prod-6',
-      name: 'Croissant de Almendras',
-      category: 'Panadería',
+      name: 'Almond Croissant',
+      category: 'Bakery',
       price: '3.80',
-      description: 'Horneado diariamente con crema frangipane y almendras tostadas',
+      description: 'Baked daily with frangipane cream and toasted almonds',
       available: true,
       createdAt: now,
       updatedAt: now,
@@ -76,9 +76,9 @@ function createInitialGuestDb(): GuestDatabase {
   const customers: Customer[] = [
     {
       id: 'g-cust-1',
-      name: 'Invitado Demo (Sesión Local)',
-      email: 'demo@invitado.local',
-      phone: '+52 55 0000 0001',
+      name: 'Guest Demo (Local Session)',
+      email: 'demo@guest.local',
+      phone: '+1 555 000 0001',
       favoriteDrink: 'Flat White',
       loyaltyPoints: 50,
       createdAt: now,
@@ -86,10 +86,10 @@ function createInitialGuestDb(): GuestDatabase {
     },
     {
       id: 'g-cust-2',
-      name: 'Sofía Ramírez',
-      email: 'sofia@ejemplo.com',
-      phone: '+52 55 1234 5678',
-      favoriteDrink: 'Matcha Latte Ceremonial',
+      name: 'Sofia Ramirez',
+      email: 'sofia@example.com',
+      phone: '+1 555 123 4567',
+      favoriteDrink: 'Ceremonial Matcha Latte',
       loyaltyPoints: 120,
       createdAt: now,
       updatedAt: now,
@@ -100,10 +100,10 @@ function createInitialGuestDb(): GuestDatabase {
     {
       id: 'g-ord-1',
       customerId: 'g-cust-1',
-      customerName: 'Invitado Demo (Sesión Local)',
+      customerName: 'Guest Demo (Local Session)',
       status: 'pending',
       totalAmount: '8.30',
-      notes: 'Orden de prueba guardada en sessionStorage del navegador',
+      notes: 'Test order saved in browser sessionStorage',
       items: [
         {
           id: 'g-item-1',
@@ -112,16 +112,16 @@ function createInitialGuestDb(): GuestDatabase {
           productName: 'Flat White',
           quantity: 1,
           unitPrice: '4.50',
-          notes: 'Leche de almendras',
+          notes: 'Almond milk',
         },
         {
           id: 'g-item-2',
           orderId: 'g-ord-1',
           productId: 'g-prod-6',
-          productName: 'Croissant de Almendras',
+          productName: 'Almond Croissant',
           quantity: 1,
           unitPrice: '3.80',
-          notes: 'Caliente',
+          notes: 'Warmed',
         },
       ],
       createdAt: now,
@@ -218,7 +218,7 @@ export const guestStorage = {
   updateOrderStatus(id: string, status: string): Order {
     const db = loadDb()
     const idx = db.orders.findIndex((o) => o.id === id)
-    if (idx === -1) throw new Error('Orden no encontrada en la sesión local')
+    if (idx === -1) throw new Error('Order not found in local session')
     const updated: Order = {
       ...db.orders[idx],
       status,
@@ -271,7 +271,7 @@ export const guestStorage = {
   ): Product {
     const db = loadDb()
     const idx = db.products.findIndex((p) => p.id === id)
-    if (idx === -1) throw new Error('Producto no encontrado en la sesión local')
+    if (idx === -1) throw new Error('Product not found in local session')
     const current = db.products[idx]
     const updated: Product = {
       ...current,
@@ -324,7 +324,7 @@ export const guestStorage = {
   updateCustomerPoints(id: string, loyaltyPoints: number): Customer {
     const db = loadDb()
     const idx = db.customers.findIndex((c) => c.id === id)
-    if (idx === -1) throw new Error('Cliente no encontrado en la sesión local')
+    if (idx === -1) throw new Error('Customer not found in local session')
     const updated: Customer = {
       ...db.customers[idx],
       loyaltyPoints,

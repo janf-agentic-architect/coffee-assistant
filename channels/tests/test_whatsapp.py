@@ -103,20 +103,20 @@ def test_adk_client_build_multimodal_message():
     adk_client = AdkAgentClient("http://localhost:8000", "chat_assistant")
 
     # 1. Text only
-    text_content = adk_client.build_multimodal_message(text="Hola")
+    text_content = adk_client.build_multimodal_message(text="Hello")
     assert text_content["role"] == "user"
     assert len(text_content["parts"]) == 1
-    assert text_content["parts"][0] == {"text": "Hola"}
+    assert text_content["parts"][0] == {"text": "Hello"}
 
     # 2. Text + Image
     fake_img = b"fake_png_data"
     img_content = adk_client.build_multimodal_message(
-        text="Mira esto",
+        text="Look at this",
         media_bytes=fake_img,
         mime_type="image/jpeg",
     )
     assert len(img_content["parts"]) == 2
-    assert {"text": "Mira esto"} in img_content["parts"]
+    assert {"text": "Look at this"} in img_content["parts"]
     assert {
         "inline_data": {
             "mime_type": "image/jpeg",
@@ -147,7 +147,7 @@ async def test_service_multimodal_image_flow(monkeypatch):
     mock_wa.send_text_message.return_value = {"messages": [{"id": "res_123"}]}
 
     mock_adk = AsyncMock(spec=AdkAgentClient)
-    mock_adk.send_message.return_value = "Veo una imagen de un gato."
+    mock_adk.send_message.return_value = "I see a picture of a cat."
 
     service = WhatsAppService(mock_wa, mock_adk)
 
@@ -156,7 +156,7 @@ async def test_service_multimodal_image_flow(monkeypatch):
         id="wamid.IMG999",
         timestamp="1700000000",
         type="image",
-        image=MediaItem(id="meta_media_id_123", caption="¿Qué hay aquí?"),
+        image=MediaItem(id="meta_media_id_123", caption="What is in here?"),
     )
 
     await service.process_incoming_message(msg)
@@ -166,13 +166,13 @@ async def test_service_multimodal_image_flow(monkeypatch):
     mock_wa.download_media.assert_awaited_once_with("meta_media_id_123")
     mock_adk.send_message.assert_awaited_once_with(
         phone_number="525512345678",
-        text="¿Qué hay aquí?",
+        text="What is in here?",
         media_bytes=b"fake_image_bytes",
         mime_type="image/png",
     )
     mock_wa.send_text_message.assert_awaited_once_with(
         to="525512345678",
-        text="Veo una imagen de un gato.",
+        text="I see a picture of a cat.",
     )
 
 
@@ -269,21 +269,21 @@ async def test_whatsapp_client_auto_discovers_phone_number_id(monkeypatch):
 
 def test_markdown_to_whatsapp_formatting():
     md = (
-        "### Menú del día\n\n"
-        "* **Latte** - $5.00 (*con leche vaporizada*)\n"
+        "### Today's Menu\n\n"
+        "* **Latte** - $5.00 (*with steamed milk*)\n"
         "* __Cold Brew__ - ~~$4.50~~ $4.00\n"
-        "Visita [nuestra web](https://cafe.example.com) y usa `CAFE10`.\n\n"
+        "Visit [our website](https://cafe.example.com) and use `CAFE10`.\n\n"
         "```python\n"
-        "print('**no tocar**')\n"
+        "print('**do not touch**')\n"
         "```"
     )
     expected = (
-        "*Menú del día*\n\n"
-        "- *Latte* - $5.00 (_con leche vaporizada_)\n"
+        "*Today's Menu*\n\n"
+        "- *Latte* - $5.00 (_with steamed milk_)\n"
         "- *Cold Brew* - ~$4.50~ $4.00\n"
-        "Visita nuestra web (https://cafe.example.com) y usa `CAFE10`.\n\n"
+        "Visit our website (https://cafe.example.com) and use `CAFE10`.\n\n"
         "```\n"
-        "print('**no tocar**')\n"
+        "print('**do not touch**')\n"
         "```"
     )
     assert markdown_to_whatsapp(md) == expected
@@ -291,7 +291,7 @@ def test_markdown_to_whatsapp_formatting():
 
 def test_markdown_to_whatsapp_table():
     md = (
-        "| Bebida | Precio |\n"
+        "| Drink | Price |\n"
         "| --- | --- |\n"
         "| **Espresso** | $3.50 |\n"
         "| **Latte** | $5.00 |"
@@ -348,7 +348,7 @@ def test_webhook_passes_contact_profile_name_to_service(client, monkeypatch):
                             "contacts": [
                                 {
                                     "wa_id": "5215512345678",
-                                    "profile": {"name": "María López"},
+                                    "profile": {"name": "Maria Lopez"},
                                 }
                             ],
                             "messages": [
@@ -357,7 +357,7 @@ def test_webhook_passes_contact_profile_name_to_service(client, monkeypatch):
                                     "id": "wamid.CONTACT_TEST",
                                     "timestamp": "1700000001",
                                     "type": "text",
-                                    "text": {"body": "Hola!"},
+                                    "text": {"body": "Hello!"},
                                 }
                             ],
                         },
@@ -374,7 +374,7 @@ def test_webhook_passes_contact_profile_name_to_service(client, monkeypatch):
     call_args = mock_process.await_args.args
     assert call_args[1] == "998877"
     assert call_args[2] == "523311112222"
-    assert call_args[3] == "María López"
+    assert call_args[3] == "Maria Lopez"
 
 
 @pytest.mark.anyio
@@ -397,7 +397,7 @@ async def test_adk_client_sends_customer_phone_and_name_in_state_delta(monkeypat
 
     async def mock_post(self, url, json=None, headers=None):
         captured_payloads.append(json)
-        return MockResponse(200, [{"content": {"parts": [{"text": "Hola María!"}]}}])
+        return MockResponse(200, [{"content": {"parts": [{"text": "Hello Maria!"}]}}])
 
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
@@ -405,17 +405,17 @@ async def test_adk_client_sends_customer_phone_and_name_in_state_delta(monkeypat
     adk = AdkAgentClient(base_url="http://localhost:8000", app_name="app")
     reply = await adk.send_message(
         phone_number="525512345678",
-        text="Hola",
+        text="Hello",
         business_phone_number_id="998877",
         business_display_phone="+52 33 1111 2222",
-        customer_name="María López",
+        customer_name="Maria Lopez",
     )
 
-    assert reply == "Hola María!"
+    assert reply == "Hello Maria!"
     assert len(captured_payloads) == 1
     state_delta = captured_payloads[0]["state_delta"]
     assert state_delta["customer_phone"] == "525512345678"
-    assert state_delta["customer_name"] == "María López"
+    assert state_delta["customer_name"] == "Maria Lopez"
     assert state_delta["whatsapp_phone_number_id"] == "998877"
     assert state_delta["whatsapp_display_phone"] == "523311112222"
 

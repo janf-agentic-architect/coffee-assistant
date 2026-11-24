@@ -32,7 +32,7 @@ async def test_in_memory_rate_limiter_blocks_after_limit(monkeypatch):
         callback_context=mock_context, llm_request=mock_request
     )
     assert res3 is not None
-    assert "Has superado el límite" in res3.content.parts[0].text
+    assert "You have exceeded the" in res3.content.parts[0].text
 
     # Another user is not affected
     other_user_context = MagicMock()
@@ -82,7 +82,7 @@ async def test_redis_rate_limiter_flow():
         callback_context=mock_context, llm_request=mock_request
     )
     assert res3 is not None
-    assert "límite diario de 2 mensajes" in res3.content.parts[0].text
+    assert "daily limit of 2 messages" in res3.content.parts[0].text
     assert "2h 0m" in res3.content.parts[0].text
 
 

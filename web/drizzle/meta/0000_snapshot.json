@@ -256,7 +256,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'Café Caliente'"
+          "default": "'Hot Coffee'"
         },
         "price": {
           "name": "price",

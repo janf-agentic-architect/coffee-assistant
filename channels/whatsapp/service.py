@@ -75,7 +75,7 @@ class WhatsAppService:
 
             elif msg_type == "image" and message.image:
                 image_item = message.image
-                caption = image_item.caption or "Analiza esta imagen."
+                caption = image_item.caption or "Analyze this image."
                 media_bytes, mime_type = await self.wa_client.download_media(image_item.id)
                 reply = await self.adk_client.send_message(
                     phone_number=from_phone,
@@ -91,7 +91,7 @@ class WhatsAppService:
                 media_bytes, mime_type = await self.wa_client.download_media(audio_item.id)
                 reply = await self.adk_client.send_message(
                     phone_number=from_phone,
-                    text="Escucha y responde a este audio/nota de voz.",
+                    text="Listen and respond to this audio/voice note.",
                     media_bytes=media_bytes,
                     mime_type=audio_item.mime_type or mime_type,
                     **extra_kwargs,
@@ -100,7 +100,7 @@ class WhatsAppService:
 
             elif msg_type == "document" and message.document:
                 doc_item = message.document
-                caption = doc_item.caption or f"Documento adjunto: {doc_item.filename or 'archivo'}"
+                caption = doc_item.caption or f"Attached document: {doc_item.filename or 'file'}"
                 media_bytes, mime_type = await self.wa_client.download_media(doc_item.id)
                 reply = await self.adk_client.send_message(
                     phone_number=from_phone,
@@ -115,7 +115,7 @@ class WhatsAppService:
                 logger.info("Received unhandled message type: %s", msg_type)
                 await self.wa_client.send_text_message(
                     to=from_phone,
-                    text="Recibí tu mensaje, pero actualmente solo puedo procesar texto, imágenes, audios y documentos.",
+                    text="I received your message, but I can currently only process text, images, audio, and documents.",
                 )
 
         except Exception as e:
@@ -123,7 +123,7 @@ class WhatsAppService:
             try:
                 await self.wa_client.send_text_message(
                     to=from_phone,
-                    text="Ocurrió un error al procesar tu mensaje. Por favor intenta nuevamente.",
+                    text="An error occurred while processing your message. Please try again.",
                 )
             except Exception as notify_err:
                 logger.error("Failed to notify user about error: %s", notify_err)

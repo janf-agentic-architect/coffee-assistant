@@ -103,7 +103,7 @@ async def place_order(
     resolved_customer_name = (
         customer_name.strip()
         or str(tool_context.state.get("customer_name") or "").strip()
-        or "Cliente"
+        or "Customer"
     )
 
     try:

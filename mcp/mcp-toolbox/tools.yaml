@@ -14,15 +14,15 @@ name: get-products-by-business
 type: postgres-sql
 source: coffee-pg-source
 description: >-
-  Obtiene el menú de productos disponibles de un negocio específico usando su business_id
-  (UUID del negocio), su whatsapp_phone_number_id o su número de teléfono visible de WhatsApp.
+  Retrieves the menu of available products for a specific business using its business_id
+  (business UUID), its whatsapp_phone_number_id, or its visible WhatsApp display phone number.
 parameters:
   - name: business_id
     type: string
-    description: El UUID del negocio (businesses.id / products.business_id) o el whatsapp_phone_number_id del negocio.
+    description: The business UUID (businesses.id / products.business_id) or the business whatsapp_phone_number_id.
   - name: whatsapp_display_phone
     type: string
-    description: Número de teléfono visible de WhatsApp del negocio (solo dígitos, opcional).
+    description: Business WhatsApp display phone number (digits only, optional).
 statement: >-
   SELECT
     p.id,
@@ -65,21 +65,21 @@ name: upsert-whatsapp-customer
 type: postgres-sql
 source: coffee-pg-source
 description: >-
-  Registra automáticamente un cliente nuevo que se comunica por WhatsApp (si aún no existe
-  para el negocio resuelto) y devuelve sus datos actuales.
+  Automatically registers a new customer messaging via WhatsApp (if they do not already exist
+  for the resolved business) and returns their current details.
 parameters:
   - name: business_id
     type: string
-    description: El UUID del negocio (businesses.id) o el whatsapp_phone_number_id del negocio.
+    description: The business UUID (businesses.id) or the business whatsapp_phone_number_id.
   - name: whatsapp_display_phone
     type: string
-    description: Número de teléfono visible de WhatsApp del negocio (solo dígitos, opcional).
+    description: Business WhatsApp display phone number (digits only, optional).
   - name: customer_phone
     type: string
-    description: Número de teléfono del cliente de WhatsApp.
+    description: WhatsApp customer phone number.
   - name: customer_name
     type: string
-    description: Nombre de perfil de WhatsApp del cliente (opcional).
+    description: Customer's WhatsApp profile name (optional).
 statement: >-
   WITH resolved_business AS (
     SELECT id, owner_user_id, name, description, assistant_instructions
@@ -169,29 +169,29 @@ name: create-order
 type: postgres-sql
 source: coffee-pg-source
 description: >-
-  Crea un pedido en coffee_orders y sus ítems en order_items para el negocio resuelto,
-  validando disponibilidad y calculando el total directamente desde la tabla products.
+  Creates an order in coffee_orders and its items in order_items for the resolved business,
+  validating availability and calculating the total directly from the products table.
 parameters:
   - name: business_id
     type: string
-    description: El UUID del negocio (businesses.id) o el whatsapp_phone_number_id del negocio.
+    description: The business UUID (businesses.id) or the business whatsapp_phone_number_id.
   - name: whatsapp_display_phone
     type: string
-    description: Número de teléfono visible de WhatsApp del negocio (solo dígitos, opcional).
+    description: Business WhatsApp display phone number (digits only, optional).
   - name: customer_id
     type: string
-    description: UUID del cliente en la tabla customers (vacío si es invitado).
+    description: Customer UUID in the customers table (empty if guest).
   - name: customer_name
     type: string
-    description: Nombre del cliente que realiza el pedido.
+    description: Name of the customer placing the order.
   - name: items_json
     type: string
     description: >-
-      JSON array con los ítems del pedido. Ejemplo:
-      [{"product_name": "Latte", "quantity": 2, "notes": "leche de avena"}]
+      JSON array with the order items. Example:
+      [{"product_name": "Latte", "quantity": 2, "notes": "oat milk"}]
   - name: order_notes
     type: string
-    description: Notas generales del pedido (opcional).
+    description: General order notes (optional).
 statement: >-
   WITH resolved_business AS (
     SELECT id, owner_user_id, name
@@ -265,7 +265,7 @@ statement: >-
           THEN trim($3::text)::uuid
         ELSE NULL
       END,
-      COALESCE(NULLIF(trim(COALESCE($4::text, '')), ''), 'Cliente'),
+      COALESCE(NULLIF(trim(COALESCE($4::text, '')), ''), 'Customer'),
       'pending',
       COALESCE((SELECT SUM(unit_price * quantity) FROM matched_items), 0),
       NULLIF(trim(COALESCE($6::text, '')), '')

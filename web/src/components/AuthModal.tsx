@@ -34,7 +34,7 @@ export function AuthModal() {
 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.error || `Error ${res.status} al autenticar usuario`)
+        throw new Error(data.error || `Error ${res.status} authenticating user`)
       }
 
       authStore.setAuthenticated(data.user, data.idToken)
@@ -42,7 +42,7 @@ export function AuthModal() {
       setPassword('')
       setDisplayName('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al procesar la solicitud')
+      setError(err instanceof Error ? err.message : 'Error processing request')
     } finally {
       setLoading(false)
     }
@@ -54,8 +54,8 @@ export function AuthModal() {
         <div className="modal-header">
           <h2>
             {isRegister
-              ? '🔐 Crear Cuenta (GCP Identity Platform)'
-              : '🔐 Iniciar Sesión (GCP Identity Platform)'}
+              ? '🔐 Create Account (GCP Identity Platform)'
+              : '🔐 Sign In (GCP Identity Platform)'}
           </h2>
           <button
             type="button"
@@ -75,7 +75,7 @@ export function AuthModal() {
               authStore.openAuthModal('login')
             }}
           >
-            Iniciar Sesión
+            Sign In
           </button>
           <button
             type="button"
@@ -85,7 +85,7 @@ export function AuthModal() {
               authStore.openAuthModal('register')
             }}
           >
-            Crear Cuenta
+            Create Account
           </button>
         </div>
 
@@ -93,14 +93,14 @@ export function AuthModal() {
           <div className="auth-info-box">
             {isRegister ? (
               <span>
-                Crea tu cuenta con usuario/correo y contraseña. Tus órdenes y productos se
-                guardarán en <strong>PostgreSQL (Neon)</strong> y podrás vincular tu cuenta
-                de <strong>WhatsApp Business (Tech Provider)</strong>.
+                Create your account with an email and password. Your orders and products will
+                be saved in <strong>PostgreSQL (Neon)</strong> and you can link your{' '}
+                <strong>WhatsApp Business (Tech Provider)</strong> account.
               </span>
             ) : (
               <span>
-                Inicia sesión para acceder a tus datos persistentes en{' '}
-                <strong>PostgreSQL</strong> y gestionar tus sesiones de prueba web aisladas de
+                Sign in to access your persistent data in{' '}
+                <strong>PostgreSQL</strong> and manage your web test sessions isolated from
                 WhatsApp.
               </span>
             )}
@@ -110,11 +110,11 @@ export function AuthModal() {
 
           {isRegister && (
             <div className="form-group">
-              <label htmlFor="auth-display-name">Nombre / Negocio</label>
+              <label htmlFor="auth-display-name">Name / Business</label>
               <input
                 id="auth-display-name"
                 type="text"
-                placeholder="Ej. Cafetería Central"
+                placeholder="e.g. Central Coffee Shop"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
               />
@@ -122,12 +122,12 @@ export function AuthModal() {
           )}
 
           <div className="form-group">
-            <label htmlFor="auth-email">Usuario / Correo Electrónico *</label>
+            <label htmlFor="auth-email">Username / Email *</label>
             <input
               id="auth-email"
               type="email"
               required
-              placeholder="usuario@tucafeteria.com"
+              placeholder="user@yourcoffeeshop.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoFocus
@@ -135,7 +135,7 @@ export function AuthModal() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="auth-password">Contraseña * (mín. 6 caracteres)</label>
+            <label htmlFor="auth-password">Password * (min. 6 characters)</label>
             <input
               id="auth-password"
               type="password"
@@ -153,14 +153,14 @@ export function AuthModal() {
               className="btn-secondary"
               onClick={() => authStore.closeAuthModal()}
             >
-              Continuar como Invitado
+              Continue as Guest
             </button>
             <button type="submit" className="btn-primary" disabled={loading}>
               {loading
-                ? 'Autenticando...'
+                ? 'Authenticating...'
                 : isRegister
-                ? 'Crear Cuenta'
-                : 'Iniciar Sesión'}
+                ? 'Create Account'
+                : 'Sign In'}
             </button>
           </div>
         </form>

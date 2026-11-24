@@ -34,10 +34,10 @@ async def test_register_whatsapp_customer_upserts_once_and_populates_state(monke
                 {
                     "id": "cust-uuid-1",
                     "business_id": "biz-uuid-1",
-                    "business_name": "Café Aroma",
-                    "business_description": "Café de especialidad",
-                    "business_instructions": "Saluda siempre como Café Aroma",
-                    "name": "María López",
+                    "business_name": "Cafe Aroma",
+                    "business_description": "Specialty coffee",
+                    "business_instructions": "Always greet as Cafe Aroma",
+                    "name": "Maria Lopez",
                     "phone": "+525512345678",
                     "favorite_drink": "Flat White",
                     "loyalty_points": 35,
@@ -57,17 +57,17 @@ async def test_register_whatsapp_customer_upserts_once_and_populates_state(monke
         "whatsapp_phone_number_id": "998877",
         "whatsapp_display_phone": "523311112222",
         "customer_phone": "525512345678",
-        "customer_name": "María López",
+        "customer_name": "Maria Lopez",
     }
     ctx = SimpleNamespace(state=state)
 
     result = await callbacks_module.register_whatsapp_customer(ctx)
     assert result is None
-    assert state["business_name"] == "Café Aroma"
-    assert state["business_description"] == "Café de especialidad"
-    assert state["business_instructions"] == "Saluda siempre como Café Aroma"
+    assert state["business_name"] == "Cafe Aroma"
+    assert state["business_description"] == "Specialty coffee"
+    assert state["business_instructions"] == "Always greet as Cafe Aroma"
     assert state["customer_id"] == "cust-uuid-1"
-    assert state["customer_name"] == "María López"
+    assert state["customer_name"] == "Maria Lopez"
     assert state["customer_favorite_drink"] == "Flat White"
     assert state["customer_loyalty_points"] == 35
     assert state["whatsapp_customer_registered"] == "998877:525512345678"

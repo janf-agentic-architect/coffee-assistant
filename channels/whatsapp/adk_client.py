@@ -322,7 +322,7 @@ class AdkAgentClient:
 
             if response.status_code >= 400:
                 logger.error("ADK Agent error: %d %s", response.status_code, response.text)
-                return "Disculpa, ha ocurrido un error al procesar tu solicitud con el asistente."
+                return "Sorry, an error occurred while processing your request with the assistant."
 
             self._session_last_activity[user_id] = time.time()
             events = response.json()
@@ -350,6 +350,6 @@ class AdkAgentClient:
                 msg = event.get("message")
                 if msg and isinstance(msg, str):
                     return msg
-            return "Listo."
+            return "Done."
 
         return "".join(text_parts).strip()

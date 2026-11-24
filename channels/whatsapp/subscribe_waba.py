@@ -61,7 +61,7 @@ async def subscribe_waba(
 ) -> None:
     if from_gcp:
         proj = project_id or _clean_val(_TFVARS.get("project_id", ""))
-        print(f"==> Leyendo credenciales de producción desde GCP Secret Manager / env.tfvars (proyecto: {proj or 'auto'})...")
+        print(f"==> Reading production credentials from GCP Secret Manager / env.tfvars (project: {proj or 'auto'})...")
         token = _get_gcp_secret("whatsapp-token", proj) or _clean_val(_TFVARS.get("whatsapp_token", ""))
         app_secret = _get_gcp_secret("whatsapp-app-secret", proj) or _clean_val(_TFVARS.get("whatsapp_app_secret", ""))
         phone_id_cfg = _get_gcp_secret("whatsapp-phone-number-id", proj) or _clean_val(
@@ -84,16 +84,16 @@ async def subscribe_waba(
     api_version = settings.formatted_api_version
 
     if not token:
-        print("⚠️  WHATSAPP_TOKEN no está configurado (en GCP Secret Manager / infra/vars/env.tfvars). Omitiendo suscripción en Meta.")
+        print("⚠️  WHATSAPP_TOKEN is not configured (in GCP Secret Manager / infra/vars/env.tfvars). Skipping Meta subscription.")
         sys.exit(0)
 
     if auto_ngrok and not webhook_url:
-        print("==> Esperando túnel de ngrok en http://127.0.0.1:4040 ...")
+        print("==> Waiting for ngrok tunnel at http://127.0.0.1:4040 ...")
         webhook_url = await detect_ngrok_webhook_url()
         if webhook_url:
-            print(f"✓ Túnel ngrok detectado: {webhook_url}")
+            print(f"✓ ngrok tunnel detected: {webhook_url}")
         else:
-            print("⚠️  No se detectó un túnel activo de ngrok en 127.0.0.1:4040.")
+            print("⚠️  No active ngrok tunnel detected at 127.0.0.1:4040.")
 
     wa_client = WhatsAppCloudApiClient(token=token)
     discovered = await wa_client.discover_account_info(waba_id_hint=waba_id)
@@ -104,16 +104,16 @@ async def subscribe_waba(
     display_phone = discovered.get("display_phone_number", "")
 
     print(f"==> Meta Graph API Discovery ({api_version}):")
-    print(f"  • App ID:          {app_id or '(no detectado)'}")
-    print(f"  • WABA ID:         {waba_id or '(no detectado)'}")
-    print(f"  • Phone Number ID: {phone_number_id or '(se autodescubrirá en el webhook)'} {f'({display_phone})' if display_phone else ''}")
+    print(f"  • App ID:          {app_id or '(not detected)'}")
+    print(f"  • WABA ID:         {waba_id or '(not detected)'}")
+    print(f"  • Phone Number ID: {phone_number_id or '(will be auto-discovered on webhook)'} {f'({display_phone})' if display_phone else ''}")
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         # 1. If webhook_url, app_id, app_secret, and verify_token are available, auto-configure the App Webhook URL
         if webhook_url and app_id and app_secret and verify_token:
             sub_url = f"https://graph.facebook.com/{api_version}/{app_id}/subscriptions"
             app_access_token = f"{app_id}|{app_secret}"
-            print(f"==> Registrando Callback URL en Meta App ({app_id}): {webhook_url} ...")
+            print(f"==> Registering Callback URL in Meta App ({app_id}): {webhook_url} ...")
             resp = await client.post(
                 sub_url,
                 data={
@@ -125,18 +125,18 @@ async def subscribe_waba(
                 },
             )
             if resp.status_code == 200:
-                print("✓ ¡Webhook URL y campo 'messages' configurados automáticamente en la App de Meta!")
+                print("✓ Webhook URL and 'messages' field automatically configured in the Meta App!")
             else:
-                print(f"⚠️  No se pudo registrar automáticamente la URL en la App de Meta (status={resp.status_code}): {resp.text}")
-                print(f"   Puedes configurarla manualmente en Meta Dashboard con:")
+                print(f"⚠️  Could not automatically register the URL in the Meta App (status={resp.status_code}): {resp.text}")
+                print("   You can configure it manually in the Meta Dashboard with:")
                 print(f"   Callback URL: {webhook_url}")
                 print(f"   Verify Token: {verify_token}")
         elif webhook_url:
-            print("ℹ️  Para registrar el Callback URL automáticamente en la App de Meta, asegúrate de configurar `whatsapp_app_secret` en infra/vars/env.tfvars.")
+            print("ℹ️  To register the Callback URL automatically in the Meta App, make sure `whatsapp_app_secret` is set in infra/vars/env.tfvars.")
 
         # 2. Subscribe the WABA to the Meta App to receive webhook events
         if not waba_id:
-            print("❌ Error: No se pudo autodescubrir el WABA ID desde el token. Define `whatsapp_waba_id` en infra/vars/env.tfvars.")
+            print("❌ Error: Could not auto-discover WABA ID from the token. Define `whatsapp_waba_id` in infra/vars/env.tfvars.")
             sys.exit(1)
 
         url = f"https://graph.facebook.com/{api_version}/{waba_id}/subscribed_apps"
@@ -145,12 +145,12 @@ async def subscribe_waba(
             "Content-Type": "application/json",
         }
 
-        print(f"==> Suscribiendo WABA ID '{waba_id}' a los eventos de la App en Meta...")
+        print(f"==> Subscribing WABA ID '{waba_id}' to Meta App events...")
         resp = await client.post(url, headers=headers)
         if resp.status_code == 200:
-            print("✓ ¡Suscripción de WABA exitosa!")
+            print("✓ WABA subscription succeeded!")
         else:
-            print(f"❌ Error al suscribir WABA (status={resp.status_code}): {resp.text}")
+            print(f"❌ Error subscribing WABA (status={resp.status_code}): {resp.text}")
             sys.exit(1)
 
 

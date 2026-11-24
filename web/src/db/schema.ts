@@ -6,7 +6,7 @@ export const businesses = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     ownerUserId: text('owner_user_id').notNull(),
-    name: text('name').notNull().default('Mi Cafetería'),
+    name: text('name').notNull().default('My Coffee Shop'),
     description: text('description'),
     assistantInstructions: text('assistant_instructions'),
     whatsappPhoneNumberId: text('whatsapp_phone_number_id'),
@@ -25,7 +25,7 @@ export const products = pgTable('products', {
   businessId: uuid('business_id').references(() => businesses.id, { onDelete: 'cascade' }),
   userId: text('user_id'),
   name: text('name').notNull(),
-  category: text('category').notNull().default('Café Caliente'),
+  category: text('category').notNull().default('Hot Coffee'),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
   description: text('description'),
   available: boolean('available').notNull().default(true),

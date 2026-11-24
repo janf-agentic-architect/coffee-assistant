@@ -111,13 +111,13 @@ class UpstashRateLimitPlugin(BasePlugin):
             minutes = seconds // 60
             secs = seconds % 60
             return f"{minutes}m {secs}s"
-        return f"{seconds} segundos"
+        return f"{seconds} seconds"
 
     def _build_rate_limit_response(self, remaining_time: int) -> LlmResponse:
         period_str = (
-            "diario de"
+            "daily "
             if self.window_seconds >= 86400
-            else ("por hora de" if self.window_seconds >= 3600 else "de")
+            else ("hourly " if self.window_seconds >= 3600 else "")
         )
         time_str = self._format_remaining_time(remaining_time)
         return LlmResponse(
@@ -126,8 +126,8 @@ class UpstashRateLimitPlugin(BasePlugin):
                 parts=[
                     types.Part.from_text(
                         text=(
-                            f"⏳ Has superado el límite {period_str} {self.max_requests} mensajes. "
-                            f"Por favor espera {time_str} antes de enviar otro mensaje."
+                            f"⏳ You have exceeded the {period_str}limit of {self.max_requests} messages. "
+                            f"Please wait {time_str} before sending another message."
                         )
                     )
                 ],

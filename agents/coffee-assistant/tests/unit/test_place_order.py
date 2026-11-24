@@ -34,12 +34,12 @@ async def test_place_order_creates_order_via_toolbox_and_updates_state(monkeypat
                 {
                     "order_id": "ord-uuid-1",
                     "business_id": "biz-uuid-1",
-                    "business_name": "Café Aroma",
+                    "business_name": "Cafe Aroma",
                     "customer_id": "cust-uuid-1",
-                    "customer_name": "María López",
+                    "customer_name": "Maria Lopez",
                     "status": "pending",
                     "total_amount": "11.00",
-                    "notes": "Para llevar",
+                    "notes": "To go",
                     "created_at": "2026-11-24T18:00:00Z",
                     "items": [
                         {
@@ -47,7 +47,7 @@ async def test_place_order_creates_order_via_toolbox_and_updates_state(monkeypat
                             "product_name": "Oat Milk Latte",
                             "quantity": 2,
                             "unit_price": "5.50",
-                            "notes": "sin azúcar",
+                            "notes": "no sugar",
                         }
                     ],
                 }
@@ -64,39 +64,39 @@ async def test_place_order_creates_order_via_toolbox_and_updates_state(monkeypat
         "business_id": "biz-uuid-1",
         "whatsapp_display_phone": "523311112222",
         "customer_id": "cust-uuid-1",
-        "customer_name": "María López",
+        "customer_name": "Maria Lopez",
     }
     ctx = SimpleNamespace(state=state)
 
     result = await tools_module.place_order(
         ctx,
         items=[
-            {"product_name": "Oat Milk Latte", "quantity": 2, "notes": "sin azúcar"}
+            {"product_name": "Oat Milk Latte", "quantity": 2, "notes": "no sugar"}
         ],
-        notes="Para llevar",
+        notes="To go",
     )
 
     assert "error" not in result
     assert "warning" not in result
     assert result["order"]["order_id"] == "ord-uuid-1"
-    assert result["order"]["business_name"] == "Café Aroma"
+    assert result["order"]["business_name"] == "Cafe Aroma"
     assert result["order"]["total_amount"] == "11.00"
     assert state["current_order"] == result["order"]
-    assert state["business_name"] == "Café Aroma"
+    assert state["business_name"] == "Cafe Aroma"
 
     assert calls[0] == ("load_tool", "create-order")
     invoke_kwargs = calls[1][1]
     assert invoke_kwargs["business_id"] == "biz-uuid-1"
     assert invoke_kwargs["whatsapp_display_phone"] == "523311112222"
     assert invoke_kwargs["customer_id"] == "cust-uuid-1"
-    assert invoke_kwargs["customer_name"] == "María López"
-    assert invoke_kwargs["order_notes"] == "Para llevar"
+    assert invoke_kwargs["customer_name"] == "Maria Lopez"
+    assert invoke_kwargs["order_notes"] == "To go"
     assert json.loads(invoke_kwargs["items_json"]) == [
         {
             "product_id": "",
             "product_name": "Oat Milk Latte",
             "quantity": 2,
-            "notes": "sin azúcar",
+            "notes": "no sugar",
         }
     ]
 
@@ -112,7 +112,7 @@ async def test_place_order_reports_warning_for_missing_items(monkeypatch):
                 {
                     "order_id": "ord-uuid-2",
                     "status": "pending",
-                    "customer_name": "Cliente",
+                    "customer_name": "Customer",
                     "total_amount": "3.50",
                     "items": [
                         {

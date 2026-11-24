@@ -1,15 +1,15 @@
-# Canal WhatsApp Cloud API (Multimodal) para Google ADK
+# WhatsApp Cloud API Channel (Multimodal) for Google ADK
 
-Este microservicio conecta **WhatsApp Cloud API (Meta)** con el asistente conversacional basado en **Google Agent Development Kit (ADK)**, permitiendo a los usuarios interactuar a través de WhatsApp mediante:
+This microservice connects **WhatsApp Cloud API (Meta)** with the conversational assistant built on **Google Agent Development Kit (ADK)**, enabling users to interact over WhatsApp using:
 
-- 💬 **Texto**: Conversación estándar por chat.
-- 🖼️ **Imágenes**: Fotos y capturas con análisis visual de Gemini (con o sin pie de foto/caption).
-- 🎙️ **Notas de voz y Audios**: Transcripción y comprensión auditiva nativa (`audio/ogg`, `audio/mp4`, `audio/mpeg`, etc.).
-- 📄 **Documentos**: Documentos compatibles procesados como entrada multimodal.
+- 💬 **Text**: Standard chat conversation.
+- 🖼️ **Images**: Photos and screenshots with Gemini visual analysis (with or without a caption).
+- 🎙️ **Voice Notes & Audio**: Native audio transcription and understanding (`audio/ogg`, `audio/mp4`, `audio/mpeg`, etc.).
+- 📄 **Documents**: Supported documents processed as multimodal input.
 
 ---
 
-## 🏗️ Arquitectura y Flujo
+## 🏗️ Architecture & Flow
 
 ```
                     ┌─────────────────────────┐
@@ -26,10 +26,10 @@ Este microservicio conecta **WhatsApp Cloud API (Meta)** con el asistente conver
                     │  channels/whatsapp      │
                     │  (FastAPI Microservice) │
                     │                         │
-                    │  1. Responde 200 OK     │
-                    │  2. Descarga Media      │
+                    │  1. Returns 200 OK      │
+                    │  2. Downloads Media     │
                     │     (Meta Graph API)    │
-                    │  3. Formatea Multimodal │
+                    │  3. Formats Multimodal  │
                     │     (Base64 inline_data)│
                     └────────────┬────────────┘
                                  │
@@ -39,7 +39,7 @@ Este microservicio conecta **WhatsApp Cloud API (Meta)** con el asistente conver
                     │ (chat_assistant/Gemini) │
                     └────────────┬────────────┘
                                  │
-                                 ▼ Respuesta texto
+                                 ▼ Text response
                     ┌─────────────────────────┐
                     │ WhatsApp Cloud API      │
                     │ POST /messages          │
@@ -51,98 +51,98 @@ Este microservicio conecta **WhatsApp Cloud API (Meta)** con el asistente conver
                     └─────────────────────────┘
 ```
 
-1. **Meta Webhook Handshake**: Implementa el endpoint `GET /webhook` validando `hub.verify_token` y devolviendo el challenge exigido por Meta.
-2. **Recepción Asíncrona Inmediata**: Al recibir un `POST /webhook`, responde de inmediato con `HTTP 200 OK` y procesa la descarga de medios e inferencia en `BackgroundTasks` para evitar timeouts o reintentos de Meta.
-3. **Descarga de Medios**: Si el mensaje contiene imagen o audio, obtiene la URL de descarga autenticada desde Graph API y descarga los bytes.
-4. **Conversión a ADK Multimodal**: Transforma los datos binarios en objetos `types.Content` de ADK (`{"inline_data": {"mime_type": "...", "data": "<base64>"}}`).
-5. **Sesiones Persistentes**: Mapea automáticamente el número de teléfono del usuario a una sesión de ADK (`wa_{phone_number}`), manteniendo el contexto de la conversación.
+1. **Meta Webhook Handshake**: Implements the `GET /webhook` endpoint validating `hub.verify_token` and returning the challenge required by Meta.
+2. **Immediate Async Reception**: Upon receiving `POST /webhook`, immediately returns `HTTP 200 OK` and processes media downloads and inference in `BackgroundTasks` to avoid Meta timeouts or retries.
+3. **Media Download**: If the message contains an image or audio, fetches the authenticated download URL from the Graph API and downloads the bytes.
+4. **ADK Multimodal Conversion**: Transforms binary data into ADK `types.Content` objects (`{"inline_data": {"mime_type": "...", "data": "<base64>"}}`).
+5. **Persistent Sessions**: Automatically maps the user's phone number to an ADK session (`wa_{phone_number}`), preserving conversation context.
 
 ---
 
-## ⚙️ Requisitos Previos
+## ⚙️ Prerequisites
 
-1. Cuenta de desarrollador en [Meta for Developers](https://developers.facebook.com/).
-2. Una aplicación de WhatsApp Cloud API configurada en Meta con:
-   - **Access Token** (`whatsapp_token`): temporal o permanente (System User).
-   - **App Secret** (`whatsapp_app_secret`): para validación de firma `X-Hub-Signature-256` y registro automático del Callback URL en Meta.
-   - *(Opcional)* **Phone Number ID**, **WABA ID** y **Verify Token**: se autodescubren y autogeneran automáticamente si se omiten.
-3. El servidor de ADK corriendo localmente (por defecto en `http://localhost:8080` mediante `make dev-agent-api`) o desplegado en Vertex AI Agent Runtime.
+1. A developer account on [Meta for Developers](https://developers.facebook.com/).
+2. A WhatsApp Cloud API app configured in Meta with:
+   - **Access Token** (`whatsapp_token`): temporary or permanent (System User).
+   - **App Secret** (`whatsapp_app_secret`): for `X-Hub-Signature-256` signature validation and automatic Callback URL registration in Meta.
+   - *(Optional)* **Phone Number ID**, **WABA ID**, and **Verify Token**: automatically discovered and generated if omitted.
+3. The ADK server running locally (default `http://localhost:8080` via `make dev-agent-api`) or deployed on Vertex AI Agent Runtime.
 
 ---
 
-## 🚀 Puesta en Marcha
+## 🚀 Getting Started
 
-### 1. Instalar Dependencias
-Desde la raíz o dentro del directorio `channels`:
+### 1. Install Dependencies
+From the project root or inside the `channels` directory:
 
 ```bash
 cd channels
 uv sync
 ```
 
-### 2. Configurar Credenciales (vía `infra/vars/env.tfvars`)
-En lugar de gestionar múltiples secretos manualmente, agrega únicamente `whatsapp_token` y `whatsapp_app_secret` en `infra/vars/env.tfvars`:
+### 2. Configure Credentials (via `infra/vars/env.tfvars`)
+Instead of managing multiple secrets manually, just add `whatsapp_token` and `whatsapp_app_secret` in `infra/vars/env.tfvars`:
 
 ```hcl
 whatsapp_token      = "EAAG..."
-whatsapp_app_secret = "tu_app_secret_de_meta"
+whatsapp_app_secret = "your_meta_app_secret"
 ```
 
-- **En producción (`make infra` + `make deploy-whatsapp`)**:
-  - Terraform guarda automáticamente `whatsapp-token` y `whatsapp-app-secret` en **GCP Secret Manager**.
-  - Terraform genera automáticamente un `whatsapp-verify-token` aleatorio de 32 caracteres en **GCP Secret Manager**.
-  - El `Phone Number ID` y el `WABA ID` se **autodescubren automáticamente** desde Meta Graph API (`/debug_token` y `/{WABA_ID}/phone_numbers`) y desde los webhooks entrantes.
-  - Al terminar `make deploy-whatsapp`, se registra automáticamente la URL de Cloud Run y el `Verify Token` en tu App de Meta (`/{APP_ID}/subscriptions`) y se suscribe el WABA (`/{WABA_ID}/subscribed_apps`).
-- **En desarrollo local (`make dev-whatsapp`)**:
-  - `channels/whatsapp/config.py` lee automáticamente `whatsapp_token` y `whatsapp_app_secret` desde `infra/vars/env.tfvars` como fallback si no están definidos en `channels/whatsapp/.env`.
+- **In production (`make infra` + `make deploy-whatsapp`)**:
+  - Terraform automatically stores `whatsapp-token` and `whatsapp-app-secret` in **GCP Secret Manager**.
+  - Terraform automatically generates a random 32-character `whatsapp-verify-token` in **GCP Secret Manager**.
+  - `Phone Number ID` and `WABA ID` are **auto-discovered** from Meta Graph API (`/debug_token` and `/{WABA_ID}/phone_numbers`) and from incoming webhooks.
+  - At the end of `make deploy-whatsapp`, the Cloud Run URL and `Verify Token` are automatically registered in your Meta App (`/{APP_ID}/subscriptions`) and the WABA is subscribed (`/{WABA_ID}/subscribed_apps`).
+- **In local development (`make dev-whatsapp`)**:
+  - `channels/whatsapp/config.py` automatically reads `whatsapp_token` and `whatsapp_app_secret` from `infra/vars/env.tfvars` as a fallback if not defined in `channels/whatsapp/.env`.
 
-### 3. Iniciar los Servicios
+### 3. Start the Services
 
-**Terminal 1: Iniciar el backend local de ADK (`http://localhost:8080`)**
+**Terminal 1: Start the local ADK backend (`http://localhost:8080`)**
 ```bash
 make dev-agent-api
 ```
 
-**Terminal 2: Iniciar el canal de WhatsApp + ngrok + auto-registro en Meta**
+**Terminal 2: Start the WhatsApp channel + ngrok + Meta auto-registration**
 ```bash
 make dev-whatsapp-tunnel
 ```
-> `make dev-whatsapp-tunnel` levanta el servidor FastAPI en el puerto `8001`, abre el túnel HTTPS con `ngrok`, detecta automáticamente la URL pública desde `http://127.0.0.1:4040/api/tunnels`, autodescubre el `App ID` y `WABA ID`, registra el Callback URL en la App de Meta y suscribe el WABA al evento `messages`.
+> `make dev-whatsapp-tunnel` starts the FastAPI server on port `8001`, opens an HTTPS tunnel with `ngrok`, automatically detects the public URL from `http://127.0.0.1:4040/api/tunnels`, auto-discovers the `App ID` and `WABA ID`, registers the Callback URL in the Meta App, and subscribes the WABA to the `messages` event.
 
-También puedes ejecutar los pasos por separado:
-- `make dev-whatsapp`: Inicia el servidor webhook en el puerto 8001.
-- `make tunnel-whatsapp`: Expone el puerto 8001 con ngrok.
-- `make subscribe-whatsapp-waba`: Autodescubre WABA, registra el webhook y suscribe los eventos.
-
----
-
-## 🌐 Configuración del Webhook en Meta (Automática vs. Manual)
-
-### Opción A: Automática (Recomendada)
-Con `whatsapp_token` y `whatsapp_app_secret` definidos en `infra/vars/env.tfvars`:
-- **En Cloud Run**: `make deploy-whatsapp` registra automáticamente la URL de Cloud Run y el `WHATSAPP_VERIFY_TOKEN` generado por Terraform en tu App de Meta (`/{APP_ID}/subscriptions`) y suscribe tu WABA (`/{WABA_ID}/subscribed_apps`).
-- **En Desarrollo Local**: `make dev-whatsapp-tunnel` detecta el túnel activo de `ngrok` (`--auto-ngrok`) y actualiza automáticamente el Callback URL en Meta.
-
-### Opción B: Manual en el Panel de Meta
-Si prefieres configurar el webhook manualmente en el panel de **Meta for Developers**:
-1. Dirígete a **WhatsApp** > **Configuración** > **Webhook**.
-2. Haz clic en **Editar**.
-3. **URL de devolución de llamada**: `https://tu-dominio/webhooks/whatsapp` (también se admiten `/webhook`, `/webhook/whatsapp` o `/whatsapp/webhook`).
-4. **Identificador de verificación (Verify Token)**: El valor de `WHATSAPP_VERIFY_TOKEN` (por defecto en local `coffee_assistant_verify_token`, o en Cloud Run el output `terraform -chdir=infra output -raw whatsapp_verify_token`).
-5. Haz clic en **Verificar y guardar**.
-6. En los campos de suscripción de Webhook, activa **`messages`**.
+You can also run the steps separately:
+- `make dev-whatsapp`: Starts the webhook server on port 8001.
+- `make tunnel-whatsapp`: Exposes port 8001 with ngrok.
+- `make subscribe-whatsapp-waba`: Auto-discovers WABA, registers the webhook, and subscribes to events.
 
 ---
 
-## 🧪 Pruebas Locales (Curl)
+## 🌐 Meta Webhook Configuration (Automatic vs. Manual)
 
-### Probar Handshake de Verificación (GET):
+### Option A: Automatic (Recommended)
+With `whatsapp_token` and `whatsapp_app_secret` defined in `infra/vars/env.tfvars`:
+- **On Cloud Run**: `make deploy-whatsapp` automatically registers the Cloud Run URL and Terraform-generated `WHATSAPP_VERIFY_TOKEN` in your Meta App (`/{APP_ID}/subscriptions`) and subscribes your WABA (`/{WABA_ID}/subscribed_apps`).
+- **In Local Development**: `make dev-whatsapp-tunnel` detects the active `ngrok` tunnel (`--auto-ngrok`) and automatically updates the Callback URL in Meta.
+
+### Option B: Manual in Meta Dashboard
+If you prefer to configure the webhook manually in **Meta for Developers**:
+1. Go to **WhatsApp** > **Configuration** > **Webhook**.
+2. Click **Edit**.
+3. **Callback URL**: `https://your-domain/webhooks/whatsapp` (`/webhook`, `/webhook/whatsapp`, and `/whatsapp/webhook` are also supported).
+4. **Verify Token**: The value of `WHATSAPP_VERIFY_TOKEN` (defaults locally to `coffee_assistant_verify_token`, or on Cloud Run via `terraform -chdir=infra output -raw whatsapp_verify_token`).
+5. Click **Verify and save**.
+6. Under Webhook subscription fields, enable **`messages`**.
+
+---
+
+## 🧪 Local Testing (Curl)
+
+### Test Verification Handshake (GET):
 ```bash
-curl -X GET "http://localhost:8001/webhook?hub.mode=subscribe&hub.verify_token=mi_token_secreto_adk&hub.challenge=1158201444"
+curl -X GET "http://localhost:8001/webhook?hub.mode=subscribe&hub.verify_token=my_secret_adk_token&hub.challenge=1158201444"
 ```
-Debe responder con `1158201444` y código 200.
+Should respond with `1158201444` and status code 200.
 
-### Probar Mensaje de Texto (POST Simulado):
+### Test Text Message (Simulated POST):
 ```bash
 curl -X POST "http://localhost:8001/webhook" \
   -H "Content-Type: application/json" \
@@ -154,13 +154,13 @@ curl -X POST "http://localhost:8001/webhook" \
         "value": {
           "messaging_product": "whatsapp",
           "metadata": {"display_phone_number": "123456", "phone_number_id": "123456789012345"},
-          "contacts": [{"wa_id": "5215512345678", "profile": {"name": "Usuario"}}],
+          "contacts": [{"wa_id": "5215512345678", "profile": {"name": "User"}}],
           "messages": [{
             "from": "5215512345678",
             "id": "wamid.HBgL...",
             "timestamp": "1700000000",
             "type": "text",
-            "text": {"body": "Hola, ¿cómo estás?"}
+            "text": {"body": "Hello, how are you?"}
           }]
         },
         "field": "messages"
@@ -168,4 +168,4 @@ curl -X POST "http://localhost:8001/webhook" \
     }]
   }'
 ```
-Debe responder inmediatamente `{"status": "ok"}` con código 200.
+Should respond immediately with `{"status": "ok"}` and status code 200.

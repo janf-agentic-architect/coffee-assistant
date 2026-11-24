@@ -81,7 +81,7 @@ export function BusinessModal({
 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.error || `Error ${res.status} al guardar el negocio`)
+        throw new Error(data.error || `Error ${res.status} saving business`)
       }
 
       const saved = data as BusinessProfile
@@ -89,7 +89,7 @@ export function BusinessModal({
       onSaved(saved, mode)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar el negocio')
+      setError(err instanceof Error ? err.message : 'Error saving business')
     } finally {
       setSubmitting(false)
     }
@@ -98,7 +98,7 @@ export function BusinessModal({
   const handleDelete = async () => {
     if (!business || !canDelete) return
     const confirmed = confirm(
-      `¿Eliminar "${business.name}"? Se eliminarán permanentemente sus productos, clientes y órdenes asociados.`
+      `Delete "${business.name}"? Its associated products, customers, and orders will be permanently deleted.`
     )
     if (!confirmed) return
 
@@ -111,13 +111,13 @@ export function BusinessModal({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.error || `Error ${res.status} al eliminar el negocio`)
+        throw new Error(data.error || `Error ${res.status} deleting business`)
       }
       authStore.removeBusiness(business.id)
       onDeleted(business.id)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al eliminar el negocio')
+      setError(err instanceof Error ? err.message : 'Error deleting business')
     } finally {
       setDeleting(false)
     }
@@ -127,7 +127,7 @@ export function BusinessModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card business-modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{mode === 'create' ? '🏪 Nuevo Negocio' : '⚙️ Configurar Negocio'}</h2>
+          <h2>{mode === 'create' ? '🏪 New Business' : '⚙️ Configure Business'}</h2>
           <button type="button" className="modal-close" onClick={onClose}>
             ✕
           </button>
@@ -137,12 +137,12 @@ export function BusinessModal({
           {error && <div className="auth-error-alert">⚠️ {error}</div>}
 
           <div className="form-group">
-            <label htmlFor="biz-name">Nombre del Negocio *</label>
+            <label htmlFor="biz-name">Business Name *</label>
             <input
               id="biz-name"
               type="text"
               required
-              placeholder="Ej. Tostaduría Norte, Panadería Luna..."
+              placeholder="e.g. North Roastery, Luna Bakery..."
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
@@ -150,11 +150,11 @@ export function BusinessModal({
           </div>
 
           <div className="form-group">
-            <label htmlFor="biz-description">Descripción / Giro (opcional)</label>
+            <label htmlFor="biz-description">Description / Category (optional)</label>
             <textarea
               id="biz-description"
               rows={2}
-              placeholder="Ej. Cafetería de especialidad en CDMX, horario de 8am a 8pm, enfoque en métodos artesanales."
+              placeholder="e.g. Specialty coffee shop open 8am to 8pm, focused on artisanal pour-over methods."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
@@ -162,31 +162,31 @@ export function BusinessModal({
 
           <div className="form-group">
             <label htmlFor="biz-instructions">
-              Instrucciones del Asistente AI (opcional)
+              AI Assistant Instructions (optional)
             </label>
             <textarea
               id="biz-instructions"
               rows={3}
-              placeholder="Ej. Responde siempre en español con tono cálido, sugiere un croissant con cada café y menciona nuestro programa de lealtad."
+              placeholder="e.g. Always respond with a warm tone, suggest a croissant with every coffee, and mention our loyalty program."
               value={assistantInstructions}
               onChange={(e) => setAssistantInstructions(e.target.value)}
             />
             <span className="form-field-hint">
-              Se inyectan automáticamente al agente al conversar con este negocio.
+              Automatically injected into the agent when chatting with this business.
             </span>
           </div>
 
           <div className="form-group">
-            <label htmlFor="biz-whatsapp">Número de WhatsApp o Phone Number ID (opcional)</label>
+            <label htmlFor="biz-whatsapp">WhatsApp Number or Phone Number ID (optional)</label>
             <input
               id="biz-whatsapp"
               type="text"
-              placeholder="Ej. 1 (555) 012-6859 o 109283746512345"
+              placeholder="e.g. 1 (555) 012-6859 or 109283746512345"
               value={whatsappPhoneNumberId}
               onChange={(e) => setWhatsappPhoneNumberId(e.target.value)}
             />
             <span className="form-field-hint">
-              Puedes escribir el número de teléfono de tu negocio (ej. 1 (555) 012-6859) o el Phone Number ID de Meta WhatsApp Cloud API.
+              You can enter your business phone number (e.g. 1 (555) 012-6859) or the Meta WhatsApp Cloud API Phone Number ID.
             </span>
           </div>
 
@@ -200,17 +200,17 @@ export function BusinessModal({
                   disabled={!canDelete || deleting || submitting}
                   title={
                     canDelete
-                      ? 'Eliminar este negocio y todos sus datos'
-                      : 'Debes mantener al menos un negocio activo'
+                      ? 'Delete this business and all its data'
+                      : 'You must keep at least one active business'
                   }
                 >
-                  {deleting ? 'Eliminando...' : '🗑 Eliminar'}
+                  {deleting ? 'Deleting...' : '🗑 Delete'}
                 </button>
               )}
             </div>
             <div className="modal-actions-right">
               <button type="button" className="btn-secondary" onClick={onClose}>
-                Cancelar
+                Cancel
               </button>
               <button
                 type="submit"
@@ -218,10 +218,10 @@ export function BusinessModal({
                 disabled={submitting || deleting || !name.trim()}
               >
                 {submitting
-                  ? 'Guardando...'
+                  ? 'Saving...'
                   : mode === 'create'
-                  ? 'Crear Negocio'
-                  : 'Guardar Cambios'}
+                  ? 'Create Business'
+                  : 'Save Changes'}
               </button>
             </div>
           </div>

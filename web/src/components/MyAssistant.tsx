@@ -144,7 +144,7 @@ export function MyAssistant() {
       <div className="assistant-header">
         <div className="assistant-header-top">
           <span className="assistant-header-title">
-            ☕ {activeBusiness ? activeBusiness.name : "Asistente Virtual (Playground Web)"}
+            ☕ {activeBusiness ? activeBusiness.name : "Virtual Assistant (Web Playground)"}
           </span>
           <span className="assistant-header-status">● Online</span>
         </div>
@@ -152,18 +152,18 @@ export function MyAssistant() {
         <div className="assistant-session-toolbar">
           <div className="assistant-session-selector">
             <label htmlFor="web-session-select" className="session-label">
-              🧪 Sesión:
+              🧪 Session:
             </label>
             <select
               id="web-session-select"
               className="session-select"
               value={auth.activeSessionId}
               onChange={(e) => authStore.selectWebSession(e.target.value)}
-              title="Sesiones de prueba en la web (comparten el mismo usuario ADK para persistir preferencias user:*)"
+              title="Web test sessions (share the same ADK user to persist user:* preferences)"
             >
               {auth.sessions.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.label} ({auth.isGuest ? "Invitado" : "Usuario"})
+                  {s.label} ({auth.isGuest ? "Guest" : "User"})
                 </option>
               ))}
             </select>
@@ -174,24 +174,24 @@ export function MyAssistant() {
               type="button"
               className="btn-new-session"
               onClick={() => authStore.createNewWebSession()}
-              title="Crear una nueva sesión de conversación para el mismo usuario (conserva preferencias user:*)"
+              title="Create a new conversation session for the same user (keeps user:* preferences)"
             >
-              + Nueva Sesión
+              + New Session
             </button>
             <button
               type="button"
               className="btn-new-user"
               onClick={() => authStore.createNewTestUser()}
-              title="Crear un nuevo usuario de prueba limpio en ADK (reinicia preferencias user:* y sesiones)"
+              title="Create a fresh ADK test user (resets user:* preferences and sessions)"
             >
-              👤 + Nuevo Usuario
+              👤 + New User
             </button>
             {auth.sessions.length > 1 && (
               <button
                 type="button"
                 className="btn-delete-session"
                 onClick={handleDeleteSession}
-                title="Eliminar esta sesión de prueba"
+                title="Delete this test session"
               >
                 🗑
               </button>
@@ -200,14 +200,14 @@ export function MyAssistant() {
         </div>
 
         <div className="assistant-session-meta">
-          <span className="session-id-pill" title="ID de usuario compartido entre sesiones web en Google ADK">
-            Usuario ADK: <code>{auth.activeAdkUserId}</code>
+          <span className="session-id-pill" title="Shared user ID across web sessions in Google ADK">
+            ADK User: <code>{auth.activeAdkUserId}</code>
           </span>
-          <span className="session-id-pill" title="ID de sesión de conversación actual en Google ADK">
-            Sesión ADK: <code>{activeSession?.adkSessionId ? activeSession.adkSessionId.slice(0, 8) : "nueva"}</code>
+          <span className="session-id-pill" title="Current conversation session ID in Google ADK">
+            ADK Session: <code>{activeSession?.adkSessionId ? activeSession.adkSessionId.slice(0, 8) : "new"}</code>
           </span>
-          <span className="session-isolation-badge" title="Separado de las sesiones wa_<telefono> de WhatsApp">
-            🔒 Aislado de WhatsApp
+          <span className="session-isolation-badge" title="Separated from WhatsApp wa_<phone> sessions">
+            🔒 Isolated from WhatsApp
           </span>
         </div>
       </div>
