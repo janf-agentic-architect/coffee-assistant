@@ -239,7 +239,7 @@ export const guestStorage = {
     name: string
     category: string
     price: string
-    description?: string
+    description?: string | null
     available: boolean
   }): Product {
     const db = loadDb()
@@ -259,18 +259,36 @@ export const guestStorage = {
     return newProduct
   },
 
-  updateProductAvailability(id: string, available: boolean): Product {
+  updateProduct(
+    id: string,
+    payload: {
+      name?: string
+      category?: string
+      price?: string
+      description?: string | null
+      available?: boolean
+    }
+  ): Product {
     const db = loadDb()
     const idx = db.products.findIndex((p) => p.id === id)
     if (idx === -1) throw new Error('Producto no encontrado en la sesión local')
+    const current = db.products[idx]
     const updated: Product = {
-      ...db.products[idx],
-      available,
+      ...current,
+      ...(payload.name !== undefined ? { name: payload.name } : {}),
+      ...(payload.category !== undefined ? { category: payload.category } : {}),
+      ...(payload.price !== undefined ? { price: payload.price } : {}),
+      ...(payload.description !== undefined ? { description: payload.description } : {}),
+      ...(payload.available !== undefined ? { available: payload.available } : {}),
       updatedAt: new Date().toISOString(),
     }
     db.products[idx] = updated
     saveDb(db)
     return updated
+  },
+
+  updateProductAvailability(id: string, available: boolean): Product {
+    return this.updateProduct(id, { available })
   },
 
   deleteProduct(id: string): void {

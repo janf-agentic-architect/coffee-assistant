@@ -26,7 +26,10 @@ def sync_secrets(env_file: str, project_id: str, output_file: str):
             if key in [
                 "GOOGLE_CLOUD_PROJECT",
                 "GOOGLE_GENAI_USE_ENTERPRISE",
+                "GOOGLE_GENAI_USE_VERTEXAI",
                 "GOOGLE_CLOUD_LOCATION",
+                "GOOGLE_API_KEY",
+                "GEMINI_API_KEY",
                 "MODEL",
                 "RATE_LIMIT_ENABLED",
                 "TOOLBOX_URL",

@@ -1105,6 +1105,16 @@ body {
   background-color: #e2e8f0;
 }
 
+.btn-edit {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.btn-edit:hover {
+  background-color: #dbeafe;
+}
+
 .btn-delete {
   background: transparent;
   color: #94a3b8;

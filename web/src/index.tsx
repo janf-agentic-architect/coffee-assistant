@@ -691,6 +691,21 @@ app.post('/api/products', async (c) => {
     if (!user) return c.json({ error: 'No autenticado' }, 401)
 
     const body = await c.req.json()
+    const name = String(body.name || '').trim()
+    if (!name) {
+      return c.json({ error: 'El nombre del producto es obligatorio.' }, 400)
+    }
+
+    const category = String(body.category || '').trim() || 'Café Caliente'
+    const parsedPrice = Number(body.price ?? 0)
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      return c.json({ error: 'El precio debe ser un número válido mayor o igual a 0.' }, 400)
+    }
+    const description =
+      body.description !== undefined && String(body.description ?? '').trim()
+        ? String(body.description).trim()
+        : null
+
     const db = getDb(c.env?.DATABASE_URL)
     const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
@@ -699,10 +714,10 @@ app.post('/api/products', async (c) => {
       .values({
         businessId: business.id,
         userId: user.uid,
-        name: body.name,
-        category: body.category || 'Café Caliente',
-        price: String(body.price ?? '0.00'),
-        description: body.description,
+        name,
+        category,
+        price: parsedPrice.toFixed(2),
+        description,
         available: body.available !== undefined ? Boolean(body.available) : true,
       })
       .returning()
@@ -723,16 +738,41 @@ app.patch('/api/products/:id', async (c) => {
     const db = getDb(c.env?.DATABASE_URL)
     const business = await resolveActiveBusinessForUser(db, user, getRequestedBusinessId(c))
 
+    const updatePayload: Partial<typeof products.$inferInsert> = {
+      updatedAt: new Date(),
+    }
+
+    if (body.name !== undefined) {
+      const trimmedName = String(body.name).trim()
+      if (!trimmedName) {
+        return c.json({ error: 'El nombre del producto no puede estar vacío.' }, 400)
+      }
+      updatePayload.name = trimmedName
+    }
+    if (body.category !== undefined) {
+      const trimmedCategory = String(body.category).trim()
+      if (!trimmedCategory) {
+        return c.json({ error: 'La categoría del producto no puede estar vacía.' }, 400)
+      }
+      updatePayload.category = trimmedCategory
+    }
+    if (body.price !== undefined) {
+      const parsedPrice = Number(body.price)
+      if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+        return c.json({ error: 'El precio debe ser un número válido mayor o igual a 0.' }, 400)
+      }
+      updatePayload.price = parsedPrice.toFixed(2)
+    }
+    if (body.description !== undefined) {
+      updatePayload.description = String(body.description ?? '').trim() || null
+    }
+    if (body.available !== undefined) {
+      updatePayload.available = Boolean(body.available)
+    }
+
     const [updated] = await db
       .update(products)
-      .set({
-        ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.category !== undefined ? { category: body.category } : {}),
-        ...(body.price !== undefined ? { price: String(body.price) } : {}),
-        ...(body.description !== undefined ? { description: body.description } : {}),
-        ...(body.available !== undefined ? { available: Boolean(body.available) } : {}),
-        updatedAt: new Date(),
-      })
+      .set(updatePayload)
       .where(and(eq(products.id, id), eq(products.businessId, business.id)))
       .returning()
     if (!updated) return c.json({ error: 'Product not found' }, 404)

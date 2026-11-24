@@ -99,6 +99,11 @@ class Settings:
     ).rstrip("/")
     ADK_APP_NAME: str = os.getenv("ADK_APP_NAME", "app")
     ADK_USER_PREFIX: str = os.getenv("ADK_USER_PREFIX", "wa_")
+    # Create a new ADK session if the customer's last message was older than this TTL (default: 24h).
+    # Set to 0 to disable session expiration.
+    WHATSAPP_SESSION_TTL_SECONDS: int = int(
+        os.getenv("WHATSAPP_SESSION_TTL_SECONDS", "86400") or "86400"
+    )
 
     # Default business tenant context for WhatsApp channel
     DEFAULT_BUSINESS_ID: str = os.getenv(

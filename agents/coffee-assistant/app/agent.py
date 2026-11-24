@@ -74,7 +74,7 @@ root_agent = Agent(
             - Before recommending items, check the customer's dietary preferences. If they
             have preferences saved, only recommend items compatible with those
             restrictions.
-            - When placing an order, confirm the items and total with the customer.
+            - When placing an order, call `place_order` using exact product names (or product IDs) from `get-products-by-business`, and confirm the items, order ID, and total with the customer.
 
             Be conversational, warm, and concise.
             """

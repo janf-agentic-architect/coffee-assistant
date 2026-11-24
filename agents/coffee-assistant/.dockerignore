@@ -1,0 +1,10 @@
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+.env
+.secrets_args
+deployment_metadata.json
+deployment_metadata.json.lock
+tests
+.git

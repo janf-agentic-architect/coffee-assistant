@@ -12,15 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import logging
+from typing import Any
+
 from google.adk.tools import ToolContext
 from google.adk.tools.toolbox_toolset import ToolboxToolset
+from toolbox_core import ToolboxClient
 
 from app.callbacks import (
     TOOLBOX_URL,
+    _resolve_tenant_context,
     current_business_id,
     current_whatsapp_display_phone,
     get_toolbox_auth_headers,
+    parse_toolbox_single_row,
 )
+
+logger = logging.getLogger("coffee_assistant.tools")
 
 toolbox_tools = ToolboxToolset(
     server_url=TOOLBOX_URL,
@@ -32,89 +41,139 @@ toolbox_tools = ToolboxToolset(
     additional_headers=get_toolbox_auth_headers(TOOLBOX_URL) or None,
 )
 
-CAFE_MENU = {
-    "espresso": {
-        "price": 3.50,
-        "description": "Rich and bold single shot",
-        "tags": ["vegan", "dairy-free", "gluten-free"],
-    },
-    "latte": {
-        "price": 5.00,
-        "description": "Espresso with steamed milk",
-        "tags": ["gluten-free"],
-    },
-    "oat milk latte": {
-        "price": 5.50,
-        "description": "Espresso with steamed oat milk",
-        "tags": ["vegan", "dairy-free", "gluten-free"],
-    },
-    "cappuccino": {
-        "price": 4.50,
-        "description": "Espresso with equal parts steamed milk and foam",
-        "tags": ["gluten-free"],
-    },
-    "cold brew": {
-        "price": 4.00,
-        "description": "Slow-steeped for 12 hours, served over ice",
-        "tags": ["vegan", "dairy-free", "gluten-free"],
-    },
-    "matcha latte": {
-        "price": 5.50,
-        "description": "Ceremonial grade matcha with steamed milk",
-        "tags": ["gluten-free"],
-    },
-    "croissant": {
-        "price": 3.00,
-        "description": "Buttery, flaky French pastry",
-        "tags": [],
-    },
-    "banana bread": {
-        "price": 3.50,
-        "description": "Homemade with walnuts",
-        "tags": ["vegan"],
-    },
-}
+
+def _normalize_order_items(items: list[Any]) -> list[dict[str, Any]]:
+    """Normalize LLM-provided order items into dicts expected by create-order."""
+    normalized: list[dict[str, Any]] = []
+    for raw_item in items:
+        if isinstance(raw_item, str):
+            name = raw_item.strip()
+            if name:
+                normalized.append({"product_name": name, "quantity": 1, "notes": ""})
+        elif isinstance(raw_item, dict):
+            product_id = str(raw_item.get("product_id") or "").strip()
+            product_name = str(
+                raw_item.get("product_name") or raw_item.get("name") or ""
+            ).strip()
+            if not product_id and not product_name:
+                continue
+            try:
+                quantity = max(int(raw_item.get("quantity", 1)), 1)
+            except (TypeError, ValueError):
+                quantity = 1
+            item_notes = str(raw_item.get("notes") or "").strip()
+            normalized.append(
+                {
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "quantity": quantity,
+                    "notes": item_notes,
+                }
+            )
+    return normalized
 
 
-def get_menu() -> dict:
-    """Returns the full cafe menu with prices, descriptions, and dietary tags.
+async def place_order(
+    tool_context: ToolContext,
+    items: list[dict[str, Any]],
+    customer_name: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
+    """Places an order in the database for the current business via MCP Toolbox.
 
-    Use this tool when the customer asks what's available, wants to see
-    the menu, or asks about specific items.
-    """
-    return CAFE_MENU
-
-
-def place_order(tool_context: ToolContext, items: list[str]) -> dict:
-    """Places an order for the specified menu items.
-
-    Use this tool when the customer confirms they want to order something.
+    Use this tool when the customer confirms they want to order menu items.
+    Always call `get-products-by-business` first to know exact product names/IDs.
 
     Args:
         tool_context: Provided automatically by ADK.
-        items: A list of menu item names the customer wants to order.
+        items: A list of items to order. Each item should be a dict with
+            `product_name` (str, or `product_id` UUID), optional `quantity` (int,
+            defaults to 1), and optional `notes` (str, e.g. "oat milk, no sugar").
+        customer_name: Customer's name (optional if already known in the session).
+        notes: Optional order-level notes.
     """
-    valid_items = []
-    invalid_items = []
-    total = 0.0
+    normalized_items = _normalize_order_items(items)
+    if not normalized_items:
+        return {"error": "No valid items were provided for the order."}
 
-    for item in items:
-        item_lower = item.lower()
-        if item_lower in CAFE_MENU:
-            valid_items.append(item_lower)
-            total += CAFE_MENU[item_lower]["price"]
-        else:
-            invalid_items.append(item)
+    effective_business_key, _, _, wa_display_phone = _resolve_tenant_context(
+        tool_context.state
+    )
+    resolved_customer_id = str(tool_context.state.get("customer_id") or "").strip()
+    resolved_customer_name = (
+        customer_name.strip()
+        or str(tool_context.state.get("customer_name") or "").strip()
+        or "Cliente"
+    )
 
-    if not valid_items:
-        return {"error": f"None of these items are on our menu: {invalid_items}"}
+    try:
+        client_headers = get_toolbox_auth_headers(TOOLBOX_URL)
+        client_kwargs = {"client_headers": client_headers} if client_headers else {}
+        async with ToolboxClient(TOOLBOX_URL, **client_kwargs) as client:
+            create_order_tool = await client.load_tool("create-order")
+            raw_result = await create_order_tool(
+                business_id=effective_business_key,
+                whatsapp_display_phone=wa_display_phone,
+                customer_id=resolved_customer_id,
+                customer_name=resolved_customer_name,
+                items_json=json.dumps(normalized_items),
+                order_notes=notes.strip(),
+            )
+    except Exception as exc:
+        logger.warning("Failed to place order via MCP Toolbox: %s", exc)
+        return {
+            "error": "Could not place the order right now due to a database error. Please try again."
+        }
 
-    order = {"items": valid_items, "total": round(total, 2)}
+    order = parse_toolbox_single_row(raw_result)
+    if not order:
+        requested_labels = [
+            item.get("product_name") or item.get("product_id")
+            for item in normalized_items
+        ]
+        return {
+            "error": (
+                f"None of these items were found or available on the menu: {requested_labels}. "
+                "Please check the menu with get-products-by-business."
+            )
+        }
+
+    # Normalize nested JSON items if returned as a JSON string
+    if isinstance(order.get("items"), str):
+        try:
+            order["items"] = json.loads(order["items"])
+        except json.JSONDecodeError:
+            order["items"] = []
+
+    matched_items = order.get("items") if isinstance(order.get("items"), list) else []
+    matched_names = {
+        str(item.get("product_name", "")).lower() for item in matched_items
+    }
+    matched_ids = {str(item.get("product_id", "")) for item in matched_items}
+    missing_items = [
+        item.get("product_name") or item.get("product_id")
+        for item in normalized_items
+        if (
+            not (
+                item.get("product_id")
+                and str(item["product_id"]) in matched_ids
+            )
+            and not (
+                item.get("product_name")
+                and str(item["product_name"]).lower() in matched_names
+            )
+        )
+    ]
+
     tool_context.state["current_order"] = order
+    if order.get("business_name"):
+        tool_context.state["business_name"] = str(order["business_name"])
 
-    result = {"order": order}
-    if invalid_items:
-        result["warning"] = f"These items are not on our menu: {invalid_items}"
+    result: dict[str, Any] = {"order": order}
+    if missing_items:
+        result["warning"] = (
+            f"These items were not found or are unavailable: {missing_items}"
+        )
     return result
 
 

@@ -1,7 +1,9 @@
 import base64
+from datetime import datetime
 import json
 import logging
 import re
+import time
 from typing import Any, List, Optional
 import httpx
 
@@ -16,12 +18,19 @@ class AdkAgentClient:
         base_url: Optional[str] = None,
         app_name: Optional[str] = None,
         user_prefix: Optional[str] = None,
+        session_ttl_seconds: Optional[int] = None,
     ):
         self.base_url = (base_url or settings.ADK_API_URL).rstrip("/")
         self.app_name = app_name or settings.ADK_APP_NAME
         self.user_prefix = user_prefix or settings.ADK_USER_PREFIX
+        self.session_ttl_seconds = (
+            settings.WHATSAPP_SESSION_TTL_SECONDS
+            if session_ttl_seconds is None
+            else session_ttl_seconds
+        )
         self._credentials = None
         self._user_sessions: dict[str, str] = {}
+        self._session_last_activity: dict[str, float] = {}
 
     def _get_auth_headers(self) -> dict[str, str]:
         """Obtain authorization headers for Google Cloud if calling Agent Runtime."""
@@ -55,27 +64,119 @@ class AdkAgentClient:
                 logger.warning("Could not obtain GCP OAuth2 token for Agent Runtime: %s", e)
         return headers
 
+    @staticmethod
+    def _parse_session_timestamp(session: dict[str, Any]) -> Optional[float]:
+        """Extract Unix timestamp (seconds) from an ADK session payload."""
+        for key in (
+            "lastUpdateTime",
+            "last_update_time",
+            "updateTime",
+            "update_time",
+            "createTime",
+            "create_time",
+        ):
+            val = session.get(key)
+            if val is None or val == "":
+                continue
+            if isinstance(val, (int, float)):
+                if val <= 0:
+                    continue
+                return float(val / 1000.0) if val > 1e12 else float(val)
+            if isinstance(val, str):
+                cleaned = val.strip()
+                if not cleaned:
+                    continue
+                try:
+                    num = float(cleaned)
+                    if num <= 0:
+                        continue
+                    return float(num / 1000.0) if num > 1e12 else num
+                except ValueError:
+                    try:
+                        return datetime.fromisoformat(
+                            cleaned.replace("Z", "+00:00")
+                        ).timestamp()
+                    except ValueError:
+                        continue
+        return None
+
+    def _is_session_expired(
+        self, last_activity_ts: Optional[float], now: Optional[float] = None
+    ) -> bool:
+        """Return True if the session has been inactive longer than session_ttl_seconds."""
+        if self.session_ttl_seconds <= 0 or last_activity_ts is None:
+            return False
+        current_ts = time.time() if now is None else now
+        return (current_ts - last_activity_ts) > self.session_ttl_seconds
+
     async def get_or_create_session(self, user_id: str) -> str:
-        """Get an existing session or create a new session for user."""
+        """Get an existing active session or create a new session if none exists or it expired."""
+        now = time.time()
+        expired_cached_session_id: Optional[str] = None
+
         if user_id in self._user_sessions:
-            return self._user_sessions[user_id]
+            cached_session_id = self._user_sessions[user_id]
+            cached_last_ts = self._session_last_activity.get(user_id)
+            if not self._is_session_expired(cached_last_ts, now):
+                return cached_session_id
+            logger.info(
+                "Cached session %s for user %s exceeded %ds TTL; checking backend sessions",
+                cached_session_id,
+                user_id,
+                self.session_ttl_seconds,
+            )
+            expired_cached_session_id = cached_session_id
+            self._user_sessions.pop(user_id, None)
+            self._session_last_activity.pop(user_id, None)
 
         headers = self._get_auth_headers()
         url = f"{self.base_url}/apps/{self.app_name}/users/{user_id}/sessions"
 
-        # Try to find existing session first
+        # Try to find an existing non-expired session first
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.get(url, headers=headers)
                 if res.status_code == 200:
                     sessions = res.json()
                     if isinstance(sessions, list) and sessions:
-                        latest = sessions[-1]
-                        session_id = latest.get("id")
-                        if session_id:
-                            self._user_sessions[user_id] = str(session_id)
-                            logger.info("Found existing session %s for user %s", session_id, user_id)
-                            return str(session_id)
+                        latest = max(
+                            enumerate(sessions),
+                            key=lambda item: (
+                                self._parse_session_timestamp(item[1])
+                                if isinstance(item[1], dict)
+                                and self._parse_session_timestamp(item[1]) is not None
+                                else -1.0,
+                                item[0],
+                            ),
+                        )[1]
+                        if isinstance(latest, dict):
+                            session_id = latest.get("id")
+                            if session_id:
+                                session_id_str = str(session_id)
+                                last_ts = self._parse_session_timestamp(latest)
+                                is_same_expired_without_ts = (
+                                    last_ts is None
+                                    and expired_cached_session_id == session_id_str
+                                )
+                                if not is_same_expired_without_ts and not self._is_session_expired(
+                                    last_ts, now
+                                ):
+                                    self._user_sessions[user_id] = session_id_str
+                                    self._session_last_activity[user_id] = (
+                                        last_ts if last_ts is not None else now
+                                    )
+                                    logger.info(
+                                        "Found active session %s for user %s",
+                                        session_id_str,
+                                        user_id,
+                                    )
+                                    return session_id_str
+                                logger.info(
+                                    "Latest session %s for user %s expired (> %ds); creating new session",
+                                    session_id_str,
+                                    user_id,
+                                    self.session_ttl_seconds,
+                                )
         except Exception as e:
             logger.debug("Failed to list sessions for user %s: %s", user_id, e)
 
@@ -86,6 +187,7 @@ class AdkAgentClient:
         """Create a new session in ADK."""
         headers = self._get_auth_headers()
         url = f"{self.base_url}/apps/{self.app_name}/users/{user_id}/sessions"
+        now = time.time()
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.post(url, json={}, headers=headers)
@@ -94,6 +196,7 @@ class AdkAgentClient:
                     session_id = str(data.get("id") or "")
                     if session_id:
                         self._user_sessions[user_id] = session_id
+                        self._session_last_activity[user_id] = now
                         logger.info("Created new session %s for user %s", session_id, user_id)
                         return session_id
         except Exception as e:
@@ -102,6 +205,7 @@ class AdkAgentClient:
         # Fallback
         fallback_id = f"{self.user_prefix}{user_id}"
         self._user_sessions[user_id] = fallback_id
+        self._session_last_activity[user_id] = now
         return fallback_id
 
     async def ensure_session(self, user_id: str, session_id: str) -> None:
@@ -220,6 +324,7 @@ class AdkAgentClient:
                 logger.error("ADK Agent error: %d %s", response.status_code, response.text)
                 return "Disculpa, ha ocurrido un error al procesar tu solicitud con el asistente."
 
+            self._session_last_activity[user_id] = time.time()
             events = response.json()
             return self._extract_response_text(events)
 

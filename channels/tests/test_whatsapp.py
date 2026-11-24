@@ -420,5 +420,170 @@ async def test_adk_client_sends_customer_phone_and_name_in_state_delta(monkeypat
     assert state_delta["whatsapp_display_phone"] == "523311112222"
 
 
+@pytest.mark.anyio
+async def test_adk_client_creates_new_session_when_backend_session_expired(monkeypatch):
+    import time
+    import httpx
+
+    created_sessions = []
+    now = time.time()
+    expired_ts = now - (25 * 3600)  # 25 hours ago
+
+    class MockResponse:
+        def __init__(self, status_code: int, json_data):
+            self.status_code = status_code
+            self._json = json_data
+
+        def json(self):
+            return self._json
+
+    async def mock_get(self, url, headers=None):
+        return MockResponse(
+            200,
+            [{"id": "sess_old", "lastUpdateTime": expired_ts}],
+        )
+
+    async def mock_post(self, url, json=None, headers=None):
+        created_sessions.append(url)
+        return MockResponse(201, {"id": "sess_fresh"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    adk = AdkAgentClient(
+        base_url="http://localhost:8000",
+        app_name="app",
+        session_ttl_seconds=86400,
+    )
+    session_id = await adk.get_or_create_session("wa_525512345678")
+
+    assert session_id == "sess_fresh"
+    assert len(created_sessions) == 1
+
+
+@pytest.mark.anyio
+async def test_adk_client_reuses_most_recent_active_session(monkeypatch):
+    import time
+    import httpx
+
+    now = time.time()
+
+    class MockResponse:
+        def __init__(self, status_code: int, json_data):
+            self.status_code = status_code
+            self._json = json_data
+
+        def json(self):
+            return self._json
+
+    async def mock_get(self, url, headers=None):
+        return MockResponse(
+            200,
+            [
+                {"id": "sess_recent", "lastUpdateTime": now - 3600},  # 1h ago
+                {"id": "sess_older", "lastUpdateTime": now - 90000},  # 25h ago
+            ],
+        )
+
+    async def mock_post(self, url, json=None, headers=None):
+        raise AssertionError("Should not create a new session when an active one exists")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    adk = AdkAgentClient(
+        base_url="http://localhost:8000",
+        app_name="app",
+        session_ttl_seconds=86400,
+    )
+    session_id = await adk.get_or_create_session("wa_525512345678")
+
+    assert session_id == "sess_recent"
+
+
+@pytest.mark.anyio
+async def test_adk_client_rotates_cached_session_after_24h_inactivity(monkeypatch):
+    import time
+    import httpx
+
+    now = time.time()
+    old_ts = now - (24 * 3600 + 60)  # 24h + 1m ago
+    post_urls = []
+
+    class MockResponse:
+        def __init__(self, status_code: int, json_data):
+            self.status_code = status_code
+            self._json = json_data
+
+        def json(self):
+            return self._json
+
+    async def mock_get(self, url, headers=None):
+        return MockResponse(
+            200,
+            [{"id": "sess_cached", "lastUpdateTime": old_ts}],
+        )
+
+    async def mock_post(self, url, json=None, headers=None):
+        post_urls.append(url)
+        return MockResponse(201, {"id": "sess_new_after_24h"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    adk = AdkAgentClient(
+        base_url="http://localhost:8000",
+        app_name="app",
+        session_ttl_seconds=86400,
+    )
+    # Seed cache as if user last sent a message > 24h ago
+    adk._user_sessions["wa_525512345678"] = "sess_cached"
+    adk._session_last_activity["wa_525512345678"] = old_ts
+
+    session_id = await adk.get_or_create_session("wa_525512345678")
+
+    assert session_id == "sess_new_after_24h"
+    assert adk._user_sessions["wa_525512345678"] == "sess_new_after_24h"
+    assert len(post_urls) == 1
+
+
+@pytest.mark.anyio
+async def test_adk_client_ttl_disabled_when_zero(monkeypatch):
+    import time
+    import httpx
+
+    old_ts = time.time() - (72 * 3600)  # 3 days ago
+
+    class MockResponse:
+        def __init__(self, status_code: int, json_data):
+            self.status_code = status_code
+            self._json = json_data
+
+        def json(self):
+            return self._json
+
+    async def mock_get(self, url, headers=None):
+        return MockResponse(
+            200,
+            [{"id": "sess_forever", "lastUpdateTime": old_ts}],
+        )
+
+    async def mock_post(self, url, json=None, headers=None):
+        raise AssertionError("Should not create a new session when TTL is 0")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    adk = AdkAgentClient(
+        base_url="http://localhost:8000",
+        app_name="app",
+        session_ttl_seconds=0,
+    )
+    session_id = await adk.get_or_create_session("wa_525512345678")
+
+    assert session_id == "sess_forever"
+
+
+
 
 

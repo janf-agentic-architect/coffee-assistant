@@ -111,6 +111,7 @@ export function OrdersDashboard() {
   ])
 
   // Product Form state
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [prodName, setProdName] = useState('')
   const [prodCategory, setProdCategory] = useState('Café Caliente')
   const [prodPrice, setProdPrice] = useState('4.00')
@@ -470,22 +471,102 @@ export function OrdersDashboard() {
     }
   }
 
-  const handleCreateProduct = async (e: React.FormEvent) => {
+  const allProductCategories = useMemo(() => {
+    const unique = new Set<string>(PRODUCT_CATEGORIES)
+    for (const product of productsList) {
+      if (product.category?.trim()) {
+        unique.add(product.category.trim())
+      }
+    }
+    return Array.from(unique)
+  }, [productsList])
+
+  const openNewProductModal = () => {
+    setEditingProduct(null)
+    setProdName('')
+    setProdCategory(PRODUCT_CATEGORIES[0])
+    setProdPrice('4.00')
+    setProdDescription('')
+    setProdAvailable(true)
+    setShowProductModal(true)
+  }
+
+  const openEditProductModal = (product: Product) => {
+    setEditingProduct(product)
+    setProdName(product.name)
+    setProdCategory(product.category || PRODUCT_CATEGORIES[0])
+    setProdPrice(Number(product.price).toFixed(2))
+    setProdDescription(product.description || '')
+    setProdAvailable(product.available)
+    setShowProductModal(true)
+  }
+
+  const closeProductModal = () => {
+    setShowProductModal(false)
+    setEditingProduct(null)
+  }
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!prodName.trim()) return
 
+    const parsedPrice = Number(prodPrice)
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      alert('El precio debe ser un número válido mayor o igual a 0.')
+      return
+    }
+
     const productPayload = {
       name: prodName.trim(),
-      category: prodCategory,
-      price: Number(prodPrice).toFixed(2),
-      description: prodDescription.trim() || undefined,
+      category: prodCategory.trim() || 'Café Caliente',
+      price: parsedPrice.toFixed(2),
+      description: prodDescription.trim() || null,
       available: prodAvailable,
+    }
+
+    if (editingProduct) {
+      if (auth.isGuest) {
+        try {
+          const updated = guestStorage.updateProduct(editingProduct.id, productPayload)
+          setProductsList((prev) =>
+            prev.map((p) => (p.id === editingProduct.id ? updated : p))
+          )
+          closeProductModal()
+        } catch (err) {
+          alert(err instanceof Error ? err.message : 'Error al actualizar producto')
+        }
+        return
+      }
+
+      try {
+        setSubmitting(true)
+        const res = await fetch(`/api/products/${editingProduct.id}`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(productPayload),
+        })
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}))
+          throw new Error(errData.error || `Error ${res.status} al actualizar producto`)
+        }
+        const updated: Product = await res.json()
+        setProductsList((prev) =>
+          prev.map((p) => (p.id === editingProduct.id ? updated : p))
+        )
+        closeProductModal()
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Error al actualizar producto')
+      } finally {
+        setSubmitting(false)
+      }
+      return
     }
 
     if (auth.isGuest) {
       const created = guestStorage.createProduct(productPayload)
       setProductsList((prev) => [...prev, created])
-      setShowProductModal(false)
+      closeProductModal()
       setProdName('')
       setProdDescription('')
       setProdPrice('4.00')
@@ -507,7 +588,7 @@ export function OrdersDashboard() {
       }
       const created: Product = await res.json()
       setProductsList((prev) => [...prev, created])
-      setShowProductModal(false)
+      closeProductModal()
       setProdName('')
       setProdDescription('')
       setProdPrice('4.00')
@@ -886,7 +967,7 @@ export function OrdersDashboard() {
             <button
               type="button"
               className="btn-new-order"
-              onClick={() => setShowProductModal(true)}
+              onClick={openNewProductModal}
             >
               <span>+</span> Nuevo Producto
             </button>
@@ -1055,7 +1136,7 @@ export function OrdersDashboard() {
             >
               Todos ({stats.totalProducts})
             </button>
-            {PRODUCT_CATEGORIES.map((cat) => (
+            {allProductCategories.map((cat) => (
               <button
                 key={cat}
                 type="button"
@@ -1227,7 +1308,7 @@ export function OrdersDashboard() {
                 <button
                   type="button"
                   className="btn-new-order"
-                  onClick={() => setShowProductModal(true)}
+                  onClick={openNewProductModal}
                 >
                   + Agregar primer producto
                 </button>
@@ -1270,6 +1351,14 @@ export function OrdersDashboard() {
                       </span>
                     </td>
                     <td className="actions-cell">
+                      <button
+                        type="button"
+                        className="btn-action btn-edit"
+                        onClick={() => openEditProductModal(product)}
+                        title="Editar producto"
+                      >
+                        ✏️ Editar
+                      </button>
                       <button
                         type="button"
                         className={`btn-action ${
@@ -1537,21 +1626,21 @@ export function OrdersDashboard() {
         </div>
       )}
 
-      {/* ================= MODAL: NUEVO PRODUCTO ================= */}
+      {/* ================= MODAL: CREAR / EDITAR PRODUCTO ================= */}
       {showProductModal && (
-        <div className="modal-overlay" onClick={() => setShowProductModal(false)}>
+        <div className="modal-overlay" onClick={closeProductModal}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>🥐 Nuevo Producto</h2>
+              <h2>{editingProduct ? '✏️ Editar Producto' : '🥐 Nuevo Producto'}</h2>
               <button
                 type="button"
                 className="modal-close"
-                onClick={() => setShowProductModal(false)}
+                onClick={closeProductModal}
               >
                 ✕
               </button>
             </div>
-            <form onSubmit={handleCreateProduct} className="modal-form">
+            <form onSubmit={handleSaveProduct} className="modal-form">
               <div className="form-group">
                 <label htmlFor="prod-name">Nombre del Producto *</label>
                 <input
@@ -1568,24 +1657,27 @@ export function OrdersDashboard() {
               <div className="form-row">
                 <div className="form-group flex-1">
                   <label htmlFor="prod-category">Categoría *</label>
-                  <select
+                  <input
                     id="prod-category"
+                    type="text"
+                    list="product-categories-datalist"
+                    required
+                    placeholder="Ej. Café Caliente"
                     value={prodCategory}
                     onChange={(e) => setProdCategory(e.target.value)}
-                  >
-                    {PRODUCT_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
+                  />
+                  <datalist id="product-categories-datalist">
+                    {allProductCategories.map((cat) => (
+                      <option key={cat} value={cat} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <div className="form-group w-28">
                   <label htmlFor="prod-price">Precio (USD) *</label>
                   <input
                     id="prod-price"
                     type="number"
-                    step="0.05"
+                    step="0.01"
                     min="0"
                     required
                     value={prodPrice}
@@ -1596,9 +1688,9 @@ export function OrdersDashboard() {
 
               <div className="form-group">
                 <label htmlFor="prod-desc">Descripción</label>
-                <input
+                <textarea
                   id="prod-desc"
-                  type="text"
+                  rows={2}
                   placeholder="Ej. Espresso con leche vaporizada y vainilla"
                   value={prodDescription}
                   onChange={(e) => setProdDescription(e.target.value)}
@@ -1620,16 +1712,20 @@ export function OrdersDashboard() {
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => setShowProductModal(false)}
+                  onClick={closeProductModal}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   className="btn-primary"
-                  disabled={submitting || !prodName.trim()}
+                  disabled={submitting || !prodName.trim() || !prodCategory.trim()}
                 >
-                  {submitting ? 'Guardando...' : 'Guardar Producto'}
+                  {submitting
+                    ? 'Guardando...'
+                    : editingProduct
+                    ? 'Guardar Cambios'
+                    : 'Guardar Producto'}
                 </button>
               </div>
             </form>

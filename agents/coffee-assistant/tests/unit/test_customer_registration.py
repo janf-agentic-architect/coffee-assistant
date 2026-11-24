@@ -34,6 +34,9 @@ async def test_register_whatsapp_customer_upserts_once_and_populates_state(monke
                 {
                     "id": "cust-uuid-1",
                     "business_id": "biz-uuid-1",
+                    "business_name": "Café Aroma",
+                    "business_description": "Café de especialidad",
+                    "business_instructions": "Saluda siempre como Café Aroma",
                     "name": "María López",
                     "phone": "+525512345678",
                     "favorite_drink": "Flat White",
@@ -60,6 +63,9 @@ async def test_register_whatsapp_customer_upserts_once_and_populates_state(monke
 
     result = await callbacks_module.register_whatsapp_customer(ctx)
     assert result is None
+    assert state["business_name"] == "Café Aroma"
+    assert state["business_description"] == "Café de especialidad"
+    assert state["business_instructions"] == "Saluda siempre como Café Aroma"
     assert state["customer_id"] == "cust-uuid-1"
     assert state["customer_name"] == "María López"
     assert state["customer_favorite_drink"] == "Flat White"

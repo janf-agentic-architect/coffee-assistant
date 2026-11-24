@@ -82,7 +82,7 @@ parameters:
     description: Nombre de perfil de WhatsApp del cliente (opcional).
 statement: >-
   WITH resolved_business AS (
-    SELECT id, owner_user_id
+    SELECT id, owner_user_id, name, description, assistant_instructions
     FROM businesses
     WHERE
       CASE
@@ -135,10 +135,191 @@ statement: >-
     ON CONFLICT DO NOTHING
     RETURNING id, business_id, name, phone, favorite_drink, loyalty_points
   )
-  SELECT id, business_id, name, phone, favorite_drink, loyalty_points, false AS is_new FROM existing
+  SELECT
+    e.id,
+    e.business_id,
+    rb.name AS business_name,
+    rb.description AS business_description,
+    rb.assistant_instructions AS business_instructions,
+    e.name,
+    e.phone,
+    e.favorite_drink,
+    e.loyalty_points,
+    false AS is_new
+  FROM existing e
+  CROSS JOIN resolved_business rb
   UNION ALL
-  SELECT id, business_id, name, phone, favorite_drink, loyalty_points, true AS is_new FROM inserted
+  SELECT
+    i.id,
+    i.business_id,
+    rb.name AS business_name,
+    rb.description AS business_description,
+    rb.assistant_instructions AS business_instructions,
+    i.name,
+    i.phone,
+    i.favorite_drink,
+    i.loyalty_points,
+    true AS is_new
+  FROM inserted i
+  CROSS JOIN resolved_business rb
   LIMIT 1;
+---
+kind: tool
+name: create-order
+type: postgres-sql
+source: coffee-pg-source
+description: >-
+  Crea un pedido en coffee_orders y sus ítems en order_items para el negocio resuelto,
+  validando disponibilidad y calculando el total directamente desde la tabla products.
+parameters:
+  - name: business_id
+    type: string
+    description: El UUID del negocio (businesses.id) o el whatsapp_phone_number_id del negocio.
+  - name: whatsapp_display_phone
+    type: string
+    description: Número de teléfono visible de WhatsApp del negocio (solo dígitos, opcional).
+  - name: customer_id
+    type: string
+    description: UUID del cliente en la tabla customers (vacío si es invitado).
+  - name: customer_name
+    type: string
+    description: Nombre del cliente que realiza el pedido.
+  - name: items_json
+    type: string
+    description: >-
+      JSON array con los ítems del pedido. Ejemplo:
+      [{"product_name": "Latte", "quantity": 2, "notes": "leche de avena"}]
+  - name: order_notes
+    type: string
+    description: Notas generales del pedido (opcional).
+statement: >-
+  WITH resolved_business AS (
+    SELECT id, owner_user_id, name
+    FROM businesses
+    WHERE
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM businesses bw
+          WHERE bw.whatsapp_phone_number_id = $1::text
+        )
+          THEN whatsapp_phone_number_id = $1::text
+        WHEN $2::text <> '' AND EXISTS (
+          SELECT 1 FROM businesses bw
+          WHERE regexp_replace(COALESCE(bw.whatsapp_phone_number_id, ''), '[^0-9]', '', 'g')
+              = regexp_replace($2::text, '[^0-9]', '', 'g')
+            AND regexp_replace($2::text, '[^0-9]', '', 'g') <> ''
+        )
+          THEN regexp_replace(COALESCE(whatsapp_phone_number_id, ''), '[^0-9]', '', 'g')
+             = regexp_replace($2::text, '[^0-9]', '', 'g')
+        WHEN EXISTS (SELECT 1 FROM businesses bw WHERE bw.id::text = $1::text)
+          THEN id::text = $1::text
+        ELSE id::text = '00000000-0000-0000-0000-000000000001'
+      END
+    LIMIT 1
+  ),
+  requested_items AS (
+    SELECT
+      trim(COALESCE(item->>'product_id', '')) AS product_id,
+      trim(COALESCE(item->>'product_name', '')) AS product_name,
+      GREATEST(COALESCE((item->>'quantity')::int, 1), 1) AS quantity,
+      NULLIF(trim(COALESCE(item->>'notes', '')), '') AS notes
+    FROM jsonb_array_elements($5::jsonb) AS item
+  ),
+  matched_items AS (
+    SELECT
+      p.id AS product_id,
+      p.name AS product_name,
+      p.price AS unit_price,
+      ri.quantity,
+      ri.notes
+    FROM requested_items ri
+    CROSS JOIN resolved_business rb
+    JOIN LATERAL (
+      SELECT p.id, p.name, p.price
+      FROM products p
+      WHERE (p.business_id = rb.id OR p.business_id IS NULL)
+        AND p.available = true
+        AND (
+          (ri.product_id <> '' AND p.id::text = ri.product_id)
+          OR (ri.product_name <> '' AND lower(p.name) = lower(ri.product_name))
+        )
+      ORDER BY (p.business_id = rb.id) DESC
+      LIMIT 1
+    ) p ON true
+  ),
+  new_order AS (
+    INSERT INTO coffee_orders (
+      business_id,
+      user_id,
+      customer_id,
+      customer_name,
+      status,
+      total_amount,
+      notes
+    )
+    SELECT
+      rb.id,
+      rb.owner_user_id,
+      CASE
+        WHEN trim(COALESCE($3::text, '')) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          THEN trim($3::text)::uuid
+        ELSE NULL
+      END,
+      COALESCE(NULLIF(trim(COALESCE($4::text, '')), ''), 'Cliente'),
+      'pending',
+      COALESCE((SELECT SUM(unit_price * quantity) FROM matched_items), 0),
+      NULLIF(trim(COALESCE($6::text, '')), '')
+    FROM resolved_business rb
+    WHERE EXISTS (SELECT 1 FROM matched_items)
+    RETURNING id, business_id, customer_id, customer_name, status, total_amount, notes, created_at
+  ),
+  inserted_items AS (
+    INSERT INTO order_items (
+      order_id,
+      product_id,
+      product_name,
+      quantity,
+      unit_price,
+      notes
+    )
+    SELECT
+      no.id,
+      mi.product_id,
+      mi.product_name,
+      mi.quantity,
+      mi.unit_price,
+      mi.notes
+    FROM new_order no
+    CROSS JOIN matched_items mi
+    RETURNING product_id, product_name, quantity, unit_price, notes
+  )
+  SELECT
+    no.id AS order_id,
+    no.business_id,
+    rb.name AS business_name,
+    no.customer_id,
+    no.customer_name,
+    no.status,
+    no.total_amount,
+    no.notes,
+    no.created_at,
+    COALESCE(
+      (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'product_id', ii.product_id,
+            'product_name', ii.product_name,
+            'quantity', ii.quantity,
+            'unit_price', ii.unit_price,
+            'notes', ii.notes
+          )
+        )
+        FROM inserted_items ii
+      ),
+      '[]'::jsonb
+    ) AS items
+  FROM new_order no
+  JOIN resolved_business rb ON rb.id = no.business_id;
 ---
 kind: toolset
 name: coffee-toolset

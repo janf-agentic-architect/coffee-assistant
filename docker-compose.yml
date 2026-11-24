@@ -1,0 +1,113 @@
+services:
+  postgres:
+    image: postgres:19-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-coffee_assistant_db}
+    volumes:
+      - ./infra/postgres-init:/docker-entrypoint-initdb.d:ro
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-coffee_assistant_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  toolbox:
+    image: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:1.18.0
+    restart: unless-stopped
+    command:
+      - --config
+      - /app/tools.yaml
+      - --address
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --disable-reload
+      - --disable-version-check
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-coffee_assistant_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_SSLMODE: disable
+    volumes:
+      - ./mcp/mcp-toolbox/tools.yaml:/app/tools.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  agent:
+    build:
+      context: ./agents/coffee-assistant
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: ./agents/coffee-assistant/.env
+        required: false
+    environment:
+      TOOLBOX_URL: http://toolbox:5000
+      GOOGLE_GENAI_USE_ENTERPRISE: "false"
+      GOOGLE_GENAI_USE_VERTEXAI: "false"
+      RATE_LIMIT_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      toolbox:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/list-apps')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  whatsapp:
+    build:
+      context: ./channels
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: ./channels/whatsapp/.env
+        required: false
+    environment:
+      PORT: "8001"
+      ADK_API_URL: http://agent:8080
+      WHATSAPP_IGNORE_DOTENV: "1"
+    depends_on:
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-coffee_assistant_db}
+      AGENT_RUNTIME_API_URL: http://agent:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/api/auth/config').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  postgres_data:

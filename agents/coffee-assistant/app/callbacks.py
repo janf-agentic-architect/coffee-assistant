@@ -92,8 +92,8 @@ def _resolve_tenant_context(state: Any) -> tuple[str, str, str, str]:
     return effective_business_key, str(user_id), wa_phone_id, wa_display_phone
 
 
-def _parse_toolbox_customer_row(raw_result: Any) -> dict[str, Any] | None:
-    """Normalize MCP Toolbox SQL result (JSON string, list, or dict) into a single customer dict."""
+def parse_toolbox_single_row(raw_result: Any) -> dict[str, Any] | None:
+    """Normalize MCP Toolbox SQL result (JSON string, list, or dict) into a single row dict."""
     data = raw_result
     if isinstance(data, str):
         text = data.strip()
@@ -110,6 +110,9 @@ def _parse_toolbox_customer_row(raw_result: Any) -> dict[str, Any] | None:
     return None
 
 
+_parse_toolbox_customer_row = parse_toolbox_single_row
+
+
 async def register_whatsapp_customer(
     callback_context: CallbackContext,
 ) -> types.Content | None:
@@ -121,7 +124,10 @@ async def register_whatsapp_customer(
 
     effective_business_key, _, _, wa_display_phone = _resolve_tenant_context(state)
     registered_key = f"{effective_business_key}:{customer_phone}"
-    if state.get("whatsapp_customer_registered") == registered_key:
+    if (
+        state.get("whatsapp_customer_registered") == registered_key
+        and state.get("business_name")
+    ):
         return None
 
     customer_name = str(state.get("customer_name") or "").strip()
@@ -140,6 +146,12 @@ async def register_whatsapp_customer(
         customer = _parse_toolbox_customer_row(raw_result)
         if customer:
             state["whatsapp_customer_registered"] = registered_key
+            if customer.get("business_name"):
+                state["business_name"] = str(customer["business_name"])
+            if customer.get("business_description") is not None:
+                state["business_description"] = str(customer["business_description"])
+            if customer.get("business_instructions") is not None:
+                state["business_instructions"] = str(customer["business_instructions"])
             if customer.get("id"):
                 state["customer_id"] = str(customer["id"])
             if customer.get("name"):

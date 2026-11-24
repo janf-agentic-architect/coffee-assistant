@@ -45,7 +45,7 @@ endif
 WHATSAPP_SERVICE_NAME := $(PROJECT_NAME)-whatsapp
 WHATSAPP_IMAGE_TAG = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(WHATSAPP_SERVICE_NAME)/webhook:latest
 
-.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets install-toolbox deploy-toolbox build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-all dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-toolbox dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed rename
+.PHONY: help infra-init infra-plan infra sync-metadata sync-secrets install-toolbox deploy-toolbox build-whatsapp deploy-whatsapp subscribe-whatsapp-waba deploy-agent deploy-web deploy-status deploy-all dev dev-all dev-whatsapp dev-whatsapp-server dev-whatsapp-tunnel tunnel-whatsapp dev-agent dev-agent-api dev-web dev-toolbox dev-db db-push db-studio db-seed db-neon-migrate db-neon-push db-neon-seed docker-up docker-down docker-logs rename
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -172,10 +172,14 @@ subscribe-whatsapp-waba: ## Auto-discover Meta WABA, register Cloud Run Webhook 
 deploy-status: ## Check the status of an ongoing deployment in Agent Runtime
 	cd $(AGENT_DIR) && agents-cli deploy --status
 
-deploy-all: infra db-neon-push deploy-agent deploy-web ## Provision infra, push Neon schema, and deploy agent & web (run deploy-whatsapp optionally)
+deploy-all: infra db-neon-push deploy-agent deploy-web deploy-whatsapp ## Provision infra (incl. MCP Toolbox), push Neon schema, and deploy agent, web & WhatsApp
 
-dev-all: install-toolbox ## Quick start: Run Postgres (Docker + push/seed), MCP Toolbox (5000), Agent API (8080), and Web UI together
-	@echo "==> Starting full local stack (PostgreSQL, MCP Toolbox, Agent API, Web UI)..."
+dev-all: install-toolbox ## Quick start: Run Postgres (Docker + push/seed), MCP Toolbox (5000), Agent API (8080), WhatsApp (8001 + ngrok), and Web UI together
+	@echo "==> Starting full local stack (PostgreSQL, MCP Toolbox, Agent API, WhatsApp, Web UI)..."
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "❌ Cannot connect to Docker daemon. Ensure Docker is running and your user is in the 'docker' group (sudo usermod -aG docker $$USER && newgrp docker)."; \
+		exit 1; \
+	fi
 	@[ -d $(WEB_DIR)/node_modules ] || (cd $(WEB_DIR) && pnpm install)
 	@docker rm -f $(POSTGRES_CONTAINER_NAME) 2>/dev/null || true
 	@docker run -d --rm --name $(POSTGRES_CONTAINER_NAME) \
@@ -185,36 +189,54 @@ dev-all: install-toolbox ## Quick start: Run Postgres (Docker + push/seed), MCP 
 		-v $(POSTGRES_INIT_DIR):/docker-entrypoint-initdb.d:ro \
 		-p $(POSTGRES_PORT):5432 \
 		$(POSTGRES_IMAGE) >/dev/null
-	@TOOLBOX_PID=""; AGENT_PID=""; \
+	@TOOLBOX_PID=""; AGENT_PID=""; WHATSAPP_PID=""; NGROK_PID=""; SUB_PID=""; \
 	cleanup() { \
+		trap - INT TERM EXIT; \
 		echo ""; \
 		echo "==> Stopping local stack..."; \
-		[ -n "$$AGENT_PID" ] && kill $$AGENT_PID 2>/dev/null || true; \
-		[ -n "$$TOOLBOX_PID" ] && kill $$TOOLBOX_PID 2>/dev/null || true; \
+		for pid in $$SUB_PID $$NGROK_PID $$WHATSAPP_PID $$AGENT_PID $$TOOLBOX_PID; do \
+			[ -n "$$pid" ] && { pkill -P $$pid 2>/dev/null || true; kill $$pid 2>/dev/null || true; }; \
+		done; \
 		docker stop $(POSTGRES_CONTAINER_NAME) >/dev/null 2>&1 || true; \
 	}; \
 	trap cleanup INT TERM EXIT; \
 	echo "==> Waiting for PostgreSQL on port $(POSTGRES_PORT)..."; \
 	until docker exec $(POSTGRES_CONTAINER_NAME) pg_isready -h localhost -U $(POSTGRES_USER) -d $(POSTGRES_DB) >/dev/null 2>&1; do \
+		if ! docker ps -q -f "name=^/$(POSTGRES_CONTAINER_NAME)$$" | grep -q .; then \
+			echo "❌ PostgreSQL container exited unexpectedly."; \
+			exit 1; \
+		fi; \
 		sleep 1; \
 	done; \
 	sleep 1; \
 	echo "==> PostgreSQL ready! Pushing schema & seeding..."; \
-	(cd $(WEB_DIR) && pnpm run db:push && pnpm run db:seed); \
+	(cd $(WEB_DIR) && pnpm run db:push && pnpm run db:seed) || exit 1; \
 	echo "==> Starting MCP Toolbox on http://127.0.0.1:5000..."; \
-	(cd $(TOOLBOX_DIR) && ./toolbox --config "tools.yaml") & \
+	(cd $(TOOLBOX_DIR) && exec ./toolbox --config "tools.yaml") & \
 	TOOLBOX_PID=$$!; \
 	echo "==> Starting Agent API on http://localhost:8080..."; \
-	(cd $(AGENT_DIR) && uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload) & \
+	(cd $(AGENT_DIR) && exec uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload) & \
 	AGENT_PID=$$!; \
+	echo "==> Starting WhatsApp webhook on http://localhost:$(WHATSAPP_PORT)..."; \
+	(cd $(CHANNELS_DIR) && exec uv run uvicorn whatsapp.main:app --host 0.0.0.0 --port $(WHATSAPP_PORT) --reload) & \
+	WHATSAPP_PID=$$!; \
+	if command -v ngrok >/dev/null 2>&1; then \
+		echo "==> Starting ngrok tunnel for WhatsApp (port $(WHATSAPP_PORT))..."; \
+		ngrok http $(WHATSAPP_PORT) --log=stdout --log-level=warn & \
+		NGROK_PID=$$!; \
+		(sleep 3 && cd $(CHANNELS_DIR) && exec uv run python -m whatsapp.subscribe_waba --auto-ngrok) & \
+		SUB_PID=$$!; \
+	else \
+		echo "⚠️  ngrok not found; WhatsApp webhook running locally on port $(WHATSAPP_PORT) without tunnel."; \
+	fi; \
 	echo "==> Starting Web UI (Press Ctrl+C to stop all services)..."; \
 	cd $(WEB_DIR) && pnpm dev
 
 dev: ## Quick start: Run Agent API (8080) + Web Dashboard together
 	@echo "==> Starting Agent API (port 8080) and Web Dashboard (port 3000)..."
-	@(cd $(AGENT_DIR) && uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload) & \
+	@(cd $(AGENT_DIR) && exec uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080 --reload) & \
 	AGENT_PID=$$!; \
-	trap 'kill $$AGENT_PID 2>/dev/null || true' INT TERM EXIT; \
+	trap 'trap - INT TERM EXIT; pkill -P $$AGENT_PID 2>/dev/null || true; kill $$AGENT_PID 2>/dev/null || true' INT TERM EXIT; \
 	cd $(WEB_DIR) && pnpm dev
 
 dev-agent: ## Run local agent playground
@@ -312,6 +334,24 @@ tunnel-whatsapp: ## [Debug] Run only ngrok tunnel on port $(WHATSAPP_PORT)
 	ngrok http $(WHATSAPP_PORT)
 
 dev-whatsapp-tunnel: dev-whatsapp ## Alias for dev-whatsapp
+
+WEB_PORT ?= 5173
+
+docker-up: ## Run all local services with Docker Compose and print only the web localhost URL
+	@LOG_FILE=$$(mktemp); \
+	if ! WEB_PORT=$(WEB_PORT) docker compose up -d --build --wait >"$$LOG_FILE" 2>&1; then \
+		cat "$$LOG_FILE"; \
+		rm -f "$$LOG_FILE"; \
+		exit 1; \
+	fi; \
+	rm -f "$$LOG_FILE"; \
+	echo "http://localhost:$(WEB_PORT)"
+
+docker-down: ## Stop and remove local Docker Compose services
+	@docker compose down
+
+docker-logs: ## Follow logs from local Docker Compose services
+	@docker compose logs -f
 
 rename: ## Centralize and rename project across all services (usage: make rename NAME=my-agent)
 	@if [ -z "$(NAME)" ]; then \
